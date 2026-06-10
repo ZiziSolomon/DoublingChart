@@ -86,6 +86,41 @@
   caption { text-align: left; color: var(--muted); padding-bottom: .4rem; }
   th, td { text-align: right; padding: .35rem .7rem; border-bottom: 1px solid var(--line); }
   th:first-child, td:first-child { text-align: left; }
+  .actions { margin-top: 1.6rem; display: flex; gap: .6rem; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #1a1410; border: 0; border-radius: 7px;
+    padding: .6rem 1rem; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--accent);
+    border: 1px solid var(--accent); }
+  button:hover { filter: brightness(1.1); }
+  /* Per-actor script documents */
+  .actor-script {
+    background: #fdf9f2; color: #1c1714; border-radius: 8px;
+    padding: 1.4rem 1.6rem; margin: 1.2rem 0; max-width: 720px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  }
+  .actor-script h2 { margin: 0 0 .3rem; font-size: 1.2rem; color: #6b3f1d; }
+  .actor-script .roster {
+    font-size: .9rem; background: #efe6d6; border-radius: 6px;
+    padding: .5rem .7rem; margin-bottom: 1rem;
+  }
+  .actor-script .roster b { color: #6b3f1d; }
+  .sp { margin: .45rem 0; }
+  .sp .who { font-weight: 700; font-variant: small-caps; }
+  .sp.mine .who { color: #1c1714; }
+  .sp.other { color: #8a8278; }            /* lines spoken by others, dimmed */
+  .ln.hi { background: #ffe9a8; padding: 0 .1em; border-radius: 2px; }
+  .ln.cut { text-decoration: line-through; opacity: .4; }
+  .scene-h { font-weight: 700; color: #6b3f1d; margin: 1.1rem 0 .4rem;
+    border-top: 1px solid #d8cab0; padding-top: .6rem; }
+  .dir { font-style: italic; color: #7a6f5d; margin: .3rem 0; }
+  @media print {
+    body * { visibility: hidden; }
+    #scripts, #scripts * { visibility: visible; }
+    #scripts { position: absolute; left: 0; top: 0; }
+    .actor-script { box-shadow: none; page-break-after: always; max-width: none; }
+  }
   footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   footer a { color: var(--accent); }
 </style>
@@ -127,6 +162,12 @@
   <div class="pinch" id="pinch"></div>
   <div class="grid" id="assignment"></div>
   <table id="reduction"></table>
+
+  <div class="actions">
+    <button id="gen-scripts">Generate per-actor scripts</button>
+    <button id="download-scripts" class="secondary">Download all (.html)</button>
+  </div>
+  <div id="scripts"></div>
 
   <footer>
     Conflict = two roles too close to be played by one actor under the chosen

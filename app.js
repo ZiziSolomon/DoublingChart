@@ -1,16 +1,135 @@
 "use strict";
 
 // ---- State ---------------------------------------------------------------
-let DATA = null;          // loaded timeline JSON
-let NAMES = [];           // castable character names
+let DATA = null;          // loaded timeline JSON (immutable, as parsed)
+let EFF = null;           // effective model after DECISIONS+EDITS applied
+let NAMES = [];           // castable character names (from EFF)
 let BREAK_CREDIT = 9999;   // lines/words of rest a scene break is worth (UI-set)
+let LAST_ACTORS = [];      // current assignment, exposed for script generation
+
+// User decisions/edits, all expressed against the ORIGINAL parsed data so they
+// stay stable and composable. See buildEFF for how they fold into EFF.
+let DECISIONS = { cutChars: [], merges: [], locks: {} };
+let EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [] };
+
+// ---- Effective model (EFF) ----------------------------------------------
+// buildEFF replays the parsed script under the current decisions/edits to
+// produce the effective character set the rest of the app reasons over. With
+// empty decisions/edits it reproduces DATA.characters exactly.
+//
+// Merge semantics: merging A and B yields ONE identity (canonical name) whose
+// presence is the union of both and whose lines are the union — so a merge
+// reduces headcount even where both were on stage. cutChars drops a character
+// entirely. Line ops (cut/edit/reassign/join) act per global line index (gli).
+
+// Resolve a character name to its canonical merged identity (e.g. A or B -> AB).
+function mergeRoot(name, mergeMap) {
+  let n = name;
+  while (mergeMap[n] && mergeMap[n] !== n) n = mergeMap[n];
+  return n;
+}
+
+function buildEFF() {
+  const cut = new Set(DECISIONS.cutChars);
+  // Union-find-ish: map each merged member to a canonical name (joined label).
+  const mergeMap = {};
+  for (const [a, b] of DECISIONS.merges) {
+    const ra = mergeRoot(a, mergeMap), rb = mergeRoot(b, mergeMap);
+    if (ra === rb) continue;
+    const label = [ra, rb].join("/");          // e.g. "COBWEB/MOTH"
+    mergeMap[ra] = label; mergeMap[rb] = label; mergeMap[label] = label;
+  }
+  // Castable identities: those the parser recorded (excludes group/chorus
+  // speakers like ALL and FAIRY, which appear in the script but were never
+  // counted as characters). A merge label counts if any member is castable.
+  const orig = new Set(Object.keys(DATA.characters));
+  const isCastable = name => {
+    if (orig.has(name)) return true;
+    return name.split("/").some(m => orig.has(m));  // merge label
+  };
+  const canon = name => {
+    if (cut.has(name) || !isCastable(name)) return null;
+    return mergeRoot(name, mergeMap);
+  };
+
+  const cuts = new Set(EDITS.lineCuts);
+  const joins = new Set(EDITS.lineJoins);
+
+  // Fresh character records keyed by canonical name.
+  const chars = {};
+  const ensure = name => (chars[name] ||= {
+    lines: {}, words: {}, total_lines: 0, total_words: 0, segments: [],
+  });
+
+  // 1) Rebuild per-scene line/word counts + an effective script by walking the
+  //    original script, applying line ops and speaker remapping.
+  const effScript = [];
+  for (const e of DATA.script) {
+    if (e.t !== "speech") { effScript.push(e); continue; }
+    const sp = canon(e.speaker);
+    const outLines = [];
+    for (const l of e.lines) {
+      if (cuts.has(l.gli)) continue;                 // deleted line
+      const text = (l.gli in EDITS.lineEdits) ? EDITS.lineEdits[l.gli] : l.text;
+      const reassigned = EDITS.lineReassign[l.gli];
+      const lineSpeaker = reassigned ? canon(reassigned) : sp;
+      outLines.push({ gli: l.gli, text, speaker: lineSpeaker,
+                      join: joins.has(l.gli) });
+      if (lineSpeaker) {
+        const d = ensure(lineSpeaker);
+        d.lines[e.scene] = (d.lines[e.scene] || 0) + 1;
+        const w = (text.match(/[A-Za-z']+/g) || []).length;
+        d.words[e.scene] = (d.words[e.scene] || 0) + w;
+        d.total_lines++; d.total_words += w;
+      }
+    }
+    if (outLines.length) effScript.push({ ...e, speaker: sp, lines: outLines });
+  }
+
+  // 2) Rebuild presence/segments by remapping the original segments through
+  //    canon() and merging overlapping/adjacent ones per canonical character.
+  const segsByName = {};
+  for (const [name, rec] of Object.entries(DATA.characters)) {
+    const c = canon(name);
+    if (!c) continue;
+    (segsByName[c] ||= []).push(...rec.segments.map(s => s.slice()));
+  }
+  for (const [name, segs] of Object.entries(segsByName)) {
+    segs.sort((p, q) => p[1] - q[1]);
+    // Coalesce overlapping line-ranges (merged identities may now overlap).
+    const merged = [];
+    for (const s of segs) {
+      const last = merged[merged.length - 1];
+      if (last && s[1] <= last[3]) {
+        last[3] = Math.max(last[3], s[3]);
+        last[4] = Math.max(last[4], s[4]);
+      } else merged.push(s);
+    }
+    ensure(name).segments = merged;
+  }
+
+  // Drop characters left with no presence (e.g. fully line-cut).
+  for (const name of Object.keys(chars))
+    if (!chars[name].segments.length && chars[name].total_lines === 0)
+      delete chars[name];
+
+  const groups = new Set(DATA.groups || []);
+  EFF = {
+    characters: chars,
+    script: effScript,
+    names: Object.keys(chars).filter(n => !groups.has(n)).sort(),
+    groups: DATA.groups || [],
+    scenes: DATA.scenes,
+  };
+  return EFF;
+}
 
 // ---- Conflict models -----------------------------------------------------
 // A "segment" is [scene, lineStart, wordStart, lineEnd, wordEnd]: a continuous
 // stretch a character is on stage. Two characters CONFLICT (cannot share an
 // actor) when, under the chosen mode, they come too close.
 
-function segmentsOf(name) { return DATA.characters[name].segments; }
+function segmentsOf(name) { return EFF.characters[name].segments; }
 
 // Minimum gap between two characters in a given unit, where the unit index in
 // a segment is: line -> [1,3], word -> [2,4]. Returns the smallest REST (in
@@ -70,7 +189,7 @@ function conflicts(a, b, mode, n) {
 
 // ---- Assignment (greedy graph colouring + load balancing) ----------------
 function assign(mode, n, nActors) {
-  const total = name => DATA.characters[name].total_lines;
+  const total = name => EFF.characters[name].total_lines;
   const footprintSize = name => segmentsOf(name).length;
   // Most-constrained-first so hard-to-place roles claim actors before fillers.
   const order = [...NAMES].sort((x, y) =>
@@ -124,7 +243,7 @@ function assign(mode, n, nActors) {
 // Scenes a character speaks/appears in, and lines spoken there.
 function scenesOf(name) { return new Set(segmentsOf(name).map(s => s[0])); }
 function linesInScene(name, sc) {
-  return DATA.characters[name].lines[String(sc)] || 0;
+  return EFF.characters[name].lines[String(sc)] || 0;
 }
 
 // Given an assignment, find the real cost of any forced clashes, expressed the
@@ -171,7 +290,7 @@ function pinchScenes(mode, n) {
     const present = NAMES.filter(c => scenesOf(c).has(sc));
     // Largest mutually-conflicting group in this scene (greedy clique estimate).
     const ordered = [...present].sort((a, b) =>
-      DATA.characters[b].total_lines - DATA.characters[a].total_lines);
+      EFF.characters[b].total_lines - EFF.characters[a].total_lines);
     const clique = [];
     for (const c of ordered) {
       if (clique.every(o => conflicts(c, o, mode, n))) clique.push(c);
@@ -192,7 +311,7 @@ function pinchScenes(mode, n) {
 function thinnestIn(scene, present) {
   return [...present]
     .map(c => ({ name: c, lines: linesInScene(c, scene),
-                 total: DATA.characters[c].total_lines }))
+                 total: EFF.characters[c].total_lines }))
     .sort((a, b) => a.total - b.total);
 }
 
@@ -212,6 +331,8 @@ function chromatic(mode, n) {
 
 // ---- Rendering -----------------------------------------------------------
 function render() {
+  buildEFF();            // re-derive effective model from current decisions/edits
+  NAMES = EFF.names;
   const mode = document.getElementById("mode").value;
   const n = parseInt(document.getElementById("threshold").value, 10) || 0;
   const nActors = parseInt(document.getElementById("actors").value, 10) || 1;
@@ -220,6 +341,7 @@ function render() {
 
   const floor = chromatic(mode, n);
   const actors = assign(mode, n, nActors);
+  LAST_ACTORS = actors;          // expose current cast for script generation
   const loads = actors.map(a => a.load);
   const totalLines = loads.reduce((s, x) => s + x, 0);
 
@@ -228,7 +350,7 @@ function render() {
   // The best achievable max-load is bounded below by the heaviest single role
   // (it can't be split) and by the even share — whichever is larger. Reporting
   // the even share alone would be a target no casting can reach.
-  const heaviest = Math.max(...NAMES.map(c => DATA.characters[c].total_lines));
+  const heaviest = Math.max(...NAMES.map(c => EFF.characters[c].total_lines));
   const evenShare = Math.round(totalLines / nActors);
   const bestMax = Math.max(heaviest, evenShare);
   let msg = `Mode: <b>${labelFor(mode, n)}</b>. `
@@ -364,8 +486,8 @@ function boot() {
       '<span class="warn">Could not load play data (data.js missing).</span>';
     return;
   }
-  const groups = new Set(DATA.groups || []);
-  NAMES = Object.keys(DATA.characters).filter(n => !groups.has(n)).sort();
+  buildEFF();                 // empty decisions -> mirrors DATA.characters
+  NAMES = EFF.names;
 
   document.getElementById("play-title").textContent = DATA.title;
   document.getElementById("stats").textContent =
