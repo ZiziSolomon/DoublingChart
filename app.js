@@ -629,6 +629,91 @@ function closeRoleMenuOnce(e) {
   }
 }
 
+// ---- Per-actor script generation -----------------------------------------
+// Build one rehearsal script per actor from the current assignment over EFF:
+// a roster (which role they play in each scene) then the full play text with
+// their lines highlighted. Edits (cuts/merges/line ops) are already baked into
+// EFF.script, so the scripts reflect them.
+function buildScriptsHTML() {
+  if (!LAST_ACTORS.length) return "";
+  const scenesArr = EFF.scenes;
+  let html = "";
+
+  LAST_ACTORS.forEach((actor, ai) => {
+    const myChars = new Set(actor.roles.map(r => r.name));
+    if (!myChars.size) return;
+
+    // Roster: which of this actor's characters appear in each scene.
+    const roster = [];
+    scenesArr.forEach((title, sc) => {
+      const here = [...myChars].filter(c => scenesOf(c).has(sc));
+      if (here.length)
+        roster.push(`${title.split(" — ")[0]}: <b>${here.join(" / ")}</b>`);
+    });
+
+    const label = [...myChars].sort((a, b) =>
+      EFF.characters[b].total_lines - EFF.characters[a].total_lines).join(", ");
+    let body = `<div class="actor-script"><h2>Actor ${ai + 1} — ${label}</h2>`
+      + `<div class="roster"><b>Your roles by scene:</b><br>`
+      + (roster.join("<br>") || "(none)") + `</div>`;
+
+    // Full script with this actor's lines highlighted.
+    let curScene = -1;
+    for (const e of EFF.script) {
+      if (e.t === "scene") {
+        body += `<div class="scene-h">${scenesArr[e.scene]}</div>`;
+        curScene = e.scene;
+      } else if (e.t === "dir") {
+        body += `<div class="dir">[${e.text}]</div>`;
+      } else if (e.t === "speech") {
+        // A speech can contain lines reassigned to different speakers; group by
+        // effective speaker run for display.
+        for (const l of e.lines) {
+          const mine = l.speaker && myChars.has(l.speaker);
+          const who = l.speaker || "—";
+          body += `<div class="sp ${mine ? "mine" : "other"}">`
+            + `<span class="who">${who}.</span> `
+            + `<span class="ln${mine ? " hi" : ""}">${escapeHTML(l.text)}</span></div>`;
+        }
+      }
+    }
+    body += `</div>`;
+    html += body;
+  });
+  return html;
+}
+
+function escapeHTML(s) {
+  return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+function generateScripts() {
+  document.getElementById("scripts").innerHTML = buildScriptsHTML();
+}
+
+function downloadScripts() {
+  const inner = buildScriptsHTML();
+  if (!inner) { generateScripts(); return; }
+  // Self-contained HTML file with the script styles inlined.
+  const styles = `body{font:15px/1.5 system-ui,sans-serif;background:#fff;color:#1c1714;
+    margin:0;padding:1rem}.actor-script{max-width:720px;margin:0 auto 2rem;
+    page-break-after:always}.actor-script h2{color:#6b3f1d}.roster{background:#efe6d6;
+    border-radius:6px;padding:.5rem .7rem;margin-bottom:1rem;font-size:.9rem}
+    .sp{margin:.45rem 0}.sp .who{font-weight:700;font-variant:small-caps}
+    .sp.other{color:#8a8278}.ln.hi{background:#ffe9a8;padding:0 .1em;border-radius:2px}
+    .scene-h{font-weight:700;color:#6b3f1d;margin:1.1rem 0 .4rem;border-top:1px solid #d8cab0;
+    padding-top:.6rem}.dir{font-style:italic;color:#7a6f5d}`;
+  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8">`
+    + `<title>${DATA.title} — actor scripts</title><style>${styles}</style></head>`
+    + `<body>${inner}</body></html>`;
+  const blob = new Blob([doc], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${DATA.title.replace(/[^a-z0-9]+/gi, "_")}_actor_scripts.html`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
 // ---- Boot ----------------------------------------------------------------
 function boot() {
   // Data is inlined in data.js (window.PLAY_DATA) so the page works both from
@@ -686,8 +771,13 @@ function boot() {
     document.getElementById("import-file").click());
   document.getElementById("import-file").addEventListener("change", importEdits);
 
+  // Script generation.
+  document.getElementById("gen-scripts").addEventListener("click", generateScripts);
+  document.getElementById("download-scripts").addEventListener("click", downloadScripts);
+
   syncThreshold();
   render();
+  if (new URLSearchParams(location.search).get("gen") === "1") generateScripts();
 }
 
 function exportEdits() {
