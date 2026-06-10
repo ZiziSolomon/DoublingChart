@@ -6,11 +6,60 @@ let EFF = null;           // effective model after DECISIONS+EDITS applied
 let NAMES = [];           // castable character names (from EFF)
 let BREAK_CREDIT = 9999;   // lines/words of rest a scene break is worth (UI-set)
 let LAST_ACTORS = [];      // current assignment, exposed for script generation
+let LAST_NACTORS = 0;      // actor count of the current assignment
 
 // User decisions/edits, all expressed against the ORIGINAL parsed data so they
 // stay stable and composable. See buildEFF for how they fold into EFF.
 let DECISIONS = { cutChars: [], merges: [], locks: {} };
 let EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [] };
+
+// ---- Persistence: decisions + edits --------------------------------------
+const STORE_KEY = "doublingchart.midsummer";
+
+function saveState() {
+  const blob = JSON.stringify({ DECISIONS, EDITS });
+  try { localStorage.setItem(STORE_KEY, blob); } catch (e) { /* private mode */ }
+  // Mirror to URL hash (base64) so a configuration can be shared/bookmarked.
+  try { location.hash = "s=" + btoa(unescape(encodeURIComponent(blob))); }
+  catch (e) { /* ignore */ }
+}
+
+function loadState() {
+  // Hash beats localStorage (lets a shared link override local work).
+  let blob = null;
+  const m = location.hash.match(/s=([^&]+)/);
+  if (m) { try { blob = decodeURIComponent(escape(atob(m[1]))); } catch (e) {} }
+  if (!blob) { try { blob = localStorage.getItem(STORE_KEY); } catch (e) {} }
+  if (!blob) return;
+  try {
+    const o = JSON.parse(blob);
+    if (o.DECISIONS) DECISIONS = { cutChars: [], merges: [], locks: {}, ...o.DECISIONS };
+    if (o.EDITS) EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [], ...o.EDITS };
+  } catch (e) { /* corrupt; ignore */ }
+}
+
+// Apply a mutation to decisions/edits, persist, and re-render everything.
+function mutate(fn) {
+  fn();
+  saveState();
+  render();
+}
+
+function clearAllEdits() {
+  DECISIONS = { cutChars: [], merges: [], locks: {} };
+  EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [] };
+  saveState();
+  render();
+}
+
+function decisionCount() {
+  return DECISIONS.cutChars.length + DECISIONS.merges.length
+    + Object.keys(DECISIONS.locks).length;
+}
+function editCount() {
+  return Object.keys(EDITS.lineReassign).length + Object.keys(EDITS.lineEdits).length
+    + EDITS.lineCuts.length + EDITS.lineJoins.length;
+}
 
 // ---- Effective model (EFF) ----------------------------------------------
 // buildEFF replays the parsed script under the current decisions/edits to
@@ -200,7 +249,24 @@ function assign(mode, n, nActors) {
   const eligibleActors = (c, pool) =>
     pool.filter(a => a.roles.every(r => !conflicts(c, r.name, mode, n)));
 
+  // Honour locks first: a character pinned to an actor slot is placed there
+  // before the greedy runs. (After merges, a lock on any merged member applies
+  // to the merged identity.) Locks can force clashes; that's the user's call.
+  const locked = new Set();
+  for (const [rawName, idx] of Object.entries(DECISIONS.locks || {})) {
+    const c = NAMES.includes(rawName) ? rawName
+      : NAMES.find(nm => nm.split("/").includes(rawName));
+    if (c && idx >= 0 && idx < nActors && !locked.has(c)) {
+      const a = actors[idx];
+      const clash = a.roles.some(r => conflicts(c, r.name, mode, n));
+      a.roles.push({ name: c, lines: total(c), clash, locked: true });
+      a.load += total(c);
+      locked.add(c);
+    }
+  }
+
   for (const c of order) {
+    if (locked.has(c)) continue;
     const eligible = eligibleActors(c, actors);
     let target, clash;
     if (eligible.length) {
@@ -373,7 +439,7 @@ function render() {
 
   renderPinch(mode, n, floor, nActors);
 
-  // Actor cards.
+  // Actor cards — each role chip is clickable (cut / lock / move / merge).
   const out = document.getElementById("assignment");
   out.innerHTML = "";
   actors.forEach((a, i) => {
@@ -382,7 +448,9 @@ function render() {
     const roles = [...a.roles].sort((x, y) => y.lines - x.lines);
     const roleHtml = roles.length
       ? roles.map(r =>
-          `<span class="role${r.clash ? " clash" : ""}">${r.name} `
+          `<span class="role${r.clash ? " clash" : ""}${r.locked ? " locked" : ""}" `
+          + `data-role="${r.name}" data-actor="${i}" tabindex="0">`
+          + `${r.locked ? "📌 " : ""}${r.name} `
           + `<span class="lc">${r.lines}</span>`
           + `${r.clash ? " ⚠" : ""}</span>`).join("")
       : '<span class="muted">(no role)</span>';
@@ -392,8 +460,18 @@ function render() {
       + `<div class="roles">${roleHtml}</div>`;
     out.appendChild(card);
   });
+  LAST_NACTORS = nActors;
 
   renderReductionTable(mode, n, floor);
+
+  // Edit badge.
+  const badge = document.getElementById("edit-badge");
+  if (badge) {
+    const dc = decisionCount(), ec = editCount();
+    badge.textContent = (dc + ec === 0) ? "no edits"
+      : `${dc} casting decision${dc === 1 ? "" : "s"}, ${ec} line edit${ec === 1 ? "" : "s"}`;
+    badge.classList.toggle("active", dc + ec > 0);
+  }
 }
 
 // "Where to cut": name the scene(s) that set the floor and the lightest roles
@@ -475,6 +553,82 @@ function syncThreshold() {
   if (usesN && (mode === "words") && t.value < 20) t.value = 50;
 }
 
+// ---- Role chip menu (cut / lock / move / merge) --------------------------
+// A single floating menu reused for whichever role chip was clicked.
+function openRoleMenu(roleName, actorIdx, anchorEl) {
+  closeRoleMenu();
+  const menu = document.createElement("div");
+  menu.className = "rolemenu";
+  menu.id = "rolemenu";
+
+  const isLocked = DECISIONS.locks[roleName] !== undefined
+    || NAMES.some(nm => nm === roleName && Object.entries(DECISIONS.locks)
+        .some(([k, v]) => nm.split("/").includes(k)));
+
+  const items = [];
+  items.push([`Cut ${roleName} entirely`, () =>
+    mutate(() => { if (!DECISIONS.cutChars.includes(roleName))
+      DECISIONS.cutChars.push(roleName); })]);
+
+  // Lock / unlock to this actor slot.
+  if (DECISIONS.locks[roleName] === actorIdx) {
+    items.push([`Unpin from this actor`, () =>
+      mutate(() => { delete DECISIONS.locks[roleName]; })]);
+  } else {
+    items.push([`Pin to Actor ${actorIdx + 1}`, () =>
+      mutate(() => { DECISIONS.locks[roleName] = actorIdx; })]);
+  }
+
+  // Move to another actor (pin to a chosen slot).
+  items.push([`Move to actor…`, () => {
+    const dest = prompt(`Move ${roleName} to which actor number (1-${LAST_NACTORS})?`);
+    const idx = parseInt(dest, 10) - 1;
+    if (idx >= 0 && idx < LAST_NACTORS)
+      mutate(() => { DECISIONS.locks[roleName] = idx; });
+  }]);
+
+  // Merge with another character (collapse to one body).
+  items.push([`Merge ${roleName} with…`, () => {
+    const others = NAMES.filter(nm => nm !== roleName);
+    const pick = prompt(`Merge ${roleName} with which character?\n`
+      + others.join(", "));
+    if (pick && NAMES.includes(pick.trim().toUpperCase())) {
+      const other = pick.trim().toUpperCase();
+      // Warn if they share scenes (merging hides those overlaps).
+      const shared = [...scenesOf(roleName)].filter(s => scenesOf(other).has(s));
+      if (shared.length) {
+        const names = shared.map(s => DATA.scenes[s].split(" — ")[0]).join(", ");
+        if (!confirm(`${roleName} and ${other} are both on stage in ${names}. `
+          + `Merging makes them one actor there (hiding those overlaps). Proceed?`))
+          return;
+      }
+      mutate(() => { DECISIONS.merges.push([roleName, other]); });
+    }
+  }]);
+
+  for (const [label, action] of items) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.onclick = () => { closeRoleMenu(); action(); };
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const r = anchorEl.getBoundingClientRect();
+  menu.style.left = (window.scrollX + r.left) + "px";
+  menu.style.top = (window.scrollY + r.bottom + 4) + "px";
+  setTimeout(() => document.addEventListener("click", closeRoleMenuOnce), 0);
+}
+function closeRoleMenu() {
+  const m = document.getElementById("rolemenu");
+  if (m) m.remove();
+}
+function closeRoleMenuOnce(e) {
+  if (!e.target.closest("#rolemenu")) {
+    closeRoleMenu();
+    document.removeEventListener("click", closeRoleMenuOnce);
+  }
+}
+
 // ---- Boot ----------------------------------------------------------------
 function boot() {
   // Data is inlined in data.js (window.PLAY_DATA) so the page works both from
@@ -486,7 +640,8 @@ function boot() {
       '<span class="warn">Could not load play data (data.js missing).</span>';
     return;
   }
-  buildEFF();                 // empty decisions -> mirrors DATA.characters
+  loadState();                // restore any saved decisions/edits
+  buildEFF();
   NAMES = EFF.names;
 
   document.getElementById("play-title").textContent = DATA.title;
@@ -511,8 +666,53 @@ function boot() {
       if (id === "mode") syncThreshold();
       render();
     }));
+
+  // Delegated click on role chips -> open the cut/lock/move/merge menu.
+  document.getElementById("assignment").addEventListener("click", e => {
+    const chip = e.target.closest(".role[data-role]");
+    if (chip) {
+      e.stopPropagation();
+      openRoleMenu(chip.dataset.role, parseInt(chip.dataset.actor, 10), chip);
+    }
+  });
+
+  // Edit-set controls.
+  document.getElementById("clear-edits").addEventListener("click", () => {
+    if (decisionCount() + editCount() === 0 || confirm("Clear all cuts, merges, "
+      + "pins and line edits?")) clearAllEdits();
+  });
+  document.getElementById("export-edits").addEventListener("click", exportEdits);
+  document.getElementById("import-edits").addEventListener("click", () =>
+    document.getElementById("import-file").click());
+  document.getElementById("import-file").addEventListener("change", importEdits);
+
   syncThreshold();
   render();
+}
+
+function exportEdits() {
+  const blob = new Blob([JSON.stringify({ DECISIONS, EDITS }, null, 2)],
+    { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "doublingchart-edits.json";
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function importEdits(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const o = JSON.parse(reader.result);
+      if (o.DECISIONS) DECISIONS = { cutChars: [], merges: [], locks: {}, ...o.DECISIONS };
+      if (o.EDITS) EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [], ...o.EDITS };
+      saveState(); render();
+    } catch (err) { alert("Could not read that edits file."); }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
 }
 
 if (document.readyState === "loading") {

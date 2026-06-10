@@ -78,7 +78,27 @@
   }
   .role .lc { color: var(--muted); font-size: .78em; }
   .role.clash { border-color: var(--clash); color: var(--clash); }
+  .role[data-role] { cursor: pointer; }
+  .role[data-role]:hover { border-color: var(--accent); }
+  .role.locked { border-color: var(--accent); }
   .muted { color: var(--muted); }
+  .hint { font-size: .8rem; color: var(--muted); margin: .2rem 0 .6rem; }
+  .editbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    margin-bottom: .5rem; }
+  #edit-badge { font-size: .8rem; margin-right: .3rem; }
+  #edit-badge.active { color: var(--accent); }
+  button.small { padding: .3rem .6rem; font-size: .8rem; font-weight: 500; }
+  .rolemenu {
+    position: absolute; z-index: 50; background: #2a2420; border: 1px solid var(--accent);
+    border-radius: 7px; padding: .3rem; display: flex; flex-direction: column;
+    min-width: 12rem; box-shadow: 0 4px 14px rgba(0,0,0,.5);
+  }
+  .rolemenu button {
+    background: transparent; color: var(--ink); text-align: left; border: 0;
+    padding: .4rem .55rem; border-radius: 5px; font: inherit; font-weight: 400;
+    cursor: pointer;
+  }
+  .rolemenu button:hover { background: var(--accent); color: #1a1410; }
   table {
     margin-top: 1.5rem; border-collapse: collapse; width: 100%; max-width: 420px;
     font-size: .88rem;
@@ -159,6 +179,14 @@
   </div>
 
   <div class="summary" id="summary"></div>
+  <div class="editbar">
+    <span id="edit-badge" class="muted">no edits</span>
+    <button id="export-edits" class="secondary small">Export edits</button>
+    <button id="import-edits" class="secondary small">Import</button>
+    <button id="clear-edits" class="secondary small">Clear all</button>
+    <input type="file" id="import-file" accept="application/json" hidden>
+  </div>
+  <p class="hint">Click a role chip below to cut, pin, move, or merge it.</p>
   <div class="pinch" id="pinch"></div>
   <div class="grid" id="assignment"></div>
   <table id="reduction"></table>
