@@ -3,6 +3,7 @@
 // ---- State ---------------------------------------------------------------
 let DATA = null;          // loaded timeline JSON
 let NAMES = [];           // castable character names
+let BREAK_CREDIT = 9999;   // lines/words of rest a scene break is worth (UI-set)
 
 // ---- Conflict models -----------------------------------------------------
 // A "segment" is [scene, lineStart, wordStart, lineEnd, wordEnd]: a continuous
@@ -12,21 +13,26 @@ let NAMES = [];           // castable character names
 function segmentsOf(name) { return DATA.characters[name].segments; }
 
 // Minimum gap between two characters in a given unit, where the unit index in
-// a segment is: line -> [1,3], word -> [2,4]. Returns the smallest rest (in
+// a segment is: line -> [1,3], word -> [2,4]. Returns the smallest REST (in
 // that unit) between any exit of one and the next entrance of the other.
-// Negative/zero means genuine on-stage overlap. A scene break between them is
-// treated as unlimited rest (handled by caller via sameScene check).
-function minGap(a, b, startIdx, endIdx) {
+// Negative/zero means genuine on-stage overlap (a hard conflict).
+//
+// Rest spanning a scene break is credited: each break crossed adds
+// `breakCredit` units of rest. With credit 0 a hand-off across a break gives
+// only the literal spoken lines between (so closing one scene and opening the
+// next — the "law of re-entry" — is a conflict). With a large credit, scene
+// breaks are effectively unlimited rest (the classic mode). The credit makes a
+// one-line scene correctly count as almost no rest.
+function minGap(a, b, startIdx, endIdx, breakCredit) {
   let best = Infinity;
   for (const sa of segmentsOf(a)) {
     for (const sb of segmentsOf(b)) {
-      // Overlap on stage at the same instant -> gap 0 (a hard conflict).
       if (sa[startIdx] < sb[endIdx] && sb[startIdx] < sa[endIdx]) return -1;
-      // Otherwise the gap is gap between whichever ends first and the other's start.
-      const gap = sa[endIdx] <= sb[startIdx]
-        ? sb[startIdx] - sa[endIdx]
-        : sa[startIdx] - sb[endIdx];
-      if (gap < best) best = gap;
+      const [first, second] = sa[endIdx] <= sb[startIdx] ? [sa, sb] : [sb, sa];
+      const raw = second[startIdx] - first[endIdx];     // literal lines/words
+      const breaks = Math.abs(second[0] - first[0]);    // scene boundaries crossed
+      const rest = raw + breaks * breakCredit;
+      if (rest < best) best = rest;
     }
   }
   return best;
@@ -49,15 +55,15 @@ function minSceneGap(a, b) {
 }
 
 // Returns true if a and b conflict under the chosen mode + threshold.
+// BREAK_CREDIT (a module global, set from the UI) values a scene break in
+// lines/words modes: how many units of rest one break is worth.
 function conflicts(a, b, mode, n) {
   switch (mode) {
-    case "instant":  return minGap(a, b, 1, 3) <= 0;   // share any stage instant
+    case "instant":  return minGap(a, b, 1, 3, 0) <= 0;   // share any stage instant
     case "scene":    return sharesScene(a, b);
-    case "lines":    // need >= n lines of rest, unless a scene break separates them
-      return sharesScene(a, b) && minGap(a, b, 1, 3) < n;
-    case "words":
-      return sharesScene(a, b) && minGap(a, b, 2, 4) < n;
-    case "scenes":   return minSceneGap(a, b) < n;     // need >= n scene breaks apart
+    case "lines":    return minGap(a, b, 1, 3, BREAK_CREDIT) < n;
+    case "words":    return minGap(a, b, 2, 4, BREAK_CREDIT) < n;
+    case "scenes":   return minSceneGap(a, b) < n;        // need >= n scene breaks apart
     default:         return sharesScene(a, b);
   }
 }
@@ -154,6 +160,42 @@ function clashImpact(actors, mode, n) {
   return { scenes: [...brokenScenes].sort((x, y) => x - y), lines: brokenLines };
 }
 
+// The "pinch": the scene(s) that force the minimum cast size. For each scene,
+// count how many characters present there mutually conflict (under the mode) —
+// that local clique is a lower bound on actors needed. The scenes hitting the
+// global max are where thinning gives the most relief: cut a role or a line
+// there and the whole floor can drop. Returns [{scene, headcount, chars}], the
+// busiest first.
+function pinchScenes(mode, n) {
+  const perScene = DATA.scenes.map((_, sc) => {
+    const present = NAMES.filter(c => scenesOf(c).has(sc));
+    // Largest mutually-conflicting group in this scene (greedy clique estimate).
+    const ordered = [...present].sort((a, b) =>
+      DATA.characters[b].total_lines - DATA.characters[a].total_lines);
+    const clique = [];
+    for (const c of ordered) {
+      if (clique.every(o => conflicts(c, o, mode, n))) clique.push(c);
+    }
+    return { scene: sc, headcount: clique.length, chars: clique, present };
+  });
+  const max = Math.max(...perScene.map(s => s.headcount));
+  return {
+    floorSceneCount: max,
+    pinch: perScene.filter(s => s.headcount === max)
+      .sort((a, b) => b.present.length - a.present.length),
+    all: perScene,
+  };
+}
+
+// Lightest roles in a scene — the cheapest candidates to cut/merge to relieve
+// the pinch (line count is the proxy for how much you'd lose).
+function thinnestIn(scene, present) {
+  return [...present]
+    .map(c => ({ name: c, lines: linesInScene(c, scene),
+                 total: DATA.characters[c].total_lines }))
+    .sort((a, b) => a.total - b.total);
+}
+
 // Minimum feasible actors = greedy chromatic number under the chosen mode.
 function chromatic(mode, n) {
   const order = [...NAMES].sort((x, y) =>
@@ -173,6 +215,8 @@ function render() {
   const mode = document.getElementById("mode").value;
   const n = parseInt(document.getElementById("threshold").value, 10) || 0;
   const nActors = parseInt(document.getElementById("actors").value, 10) || 1;
+  const creditRaw = document.getElementById("breakcredit").value;
+  BREAK_CREDIT = creditRaw === "" ? 9999 : (parseInt(creditRaw, 10) || 0);
 
   const floor = chromatic(mode, n);
   const actors = assign(mode, n, nActors);
@@ -205,6 +249,8 @@ function render() {
   }
   summary.innerHTML = msg;
 
+  renderPinch(mode, n, floor, nActors);
+
   // Actor cards.
   const out = document.getElementById("assignment");
   out.innerHTML = "";
@@ -226,6 +272,36 @@ function render() {
   });
 
   renderReductionTable(mode, n, floor);
+}
+
+// "Where to cut": name the scene(s) that set the floor and the lightest roles
+// in them — the highest-leverage place to thin lines or conflate roles. This
+// is the structural half of the under-cast problem; which cut actually
+// preserves the play is left to the director.
+function renderPinch(mode, n, floor, nActors) {
+  const el = document.getElementById("pinch");
+  const { pinch } = pinchScenes(mode, n);
+  const sceneNames = pinch.map(p => DATA.scenes[p.scene].split(" — ")[0]);
+  const relief = nActors < floor ? floor - nActors : 1;
+
+  // From the busiest pinch scene, the lightest roles to target. Rank by total
+  // lines (what you'd lose play-wide), not lines-in-scene — a near-silent lead
+  // is still a bad cut. Show enough to cover the relief needed, plus a couple.
+  const main = pinch[0];
+  const light = thinnestIn(main.scene, main.chars).slice(0, Math.max(relief + 2, 4));
+  const lightHtml = light.map(r =>
+    `<span class="cand">${r.name} `
+    + `<span class="lc">${r.total} lines play-wide</span></span>`).join("");
+
+  el.innerHTML =
+    `<h2>Where to cut</h2>`
+    + `<p>The cast floor of <b>${floor}</b> is forced by `
+    + `<b>${sceneNames.join(", ")}</b> — ${main.headcount} characters who can't `
+    + `share an actor are all on stage there at once. To get below ${floor} actors `
+    + `you must thin or merge roles <em>in that scene</em>; cutting elsewhere won't help.</p>`
+    + `<p class="muted">Lightest roles in ${sceneNames[0]} (cheapest to cut or `
+    + `conflate — but check what each one provides before removing it):</p>`
+    + `<div class="cands">${lightHtml}</div>`;
 }
 
 function renderReductionTable(mode, n, floor) {
@@ -269,6 +345,9 @@ function syncThreshold() {
   const labels = { lines: "lines of rest", words: "words of rest", scenes: "scene breaks" };
   document.getElementById("threshold-unit").textContent =
     usesN ? labels[mode] : "(n/a for this mode)";
+  // Break-credit only applies to the line/word gap modes.
+  const usesCredit = mode === "lines" || mode === "words";
+  document.getElementById("breakcredit").disabled = !usesCredit;
   // Sensible defaults per unit.
   if (usesN && (mode === "scenes") && t.value > 5) t.value = 1;
   if (usesN && (mode === "words") && t.value < 20) t.value = 50;
@@ -303,8 +382,9 @@ function boot() {
   if (q.has("mode")) document.getElementById("mode").value = q.get("mode");
   if (q.has("n")) document.getElementById("threshold").value = q.get("n");
   if (q.has("actors")) a.value = q.get("actors");
+  if (q.has("credit")) document.getElementById("breakcredit").value = q.get("credit");
 
-  ["mode", "threshold", "actors"].forEach(id =>
+  ["mode", "threshold", "actors", "breakcredit"].forEach(id =>
     document.getElementById(id).addEventListener("input", () => {
       if (id === "mode") syncThreshold();
       render();

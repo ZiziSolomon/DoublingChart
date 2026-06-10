@@ -35,14 +35,31 @@
   select { min-width: 16rem; }
   input[type=number] { min-width: 6rem; }
   input:disabled { opacity: .4; }
-  #threshold-unit {
-    font-size: .72rem; color: var(--muted); height: 1.1em;
+  .check { display: flex; align-items: center; gap: .4rem; height: 2.5rem;
+    font-size: .82rem; color: var(--ink); text-transform: none; letter-spacing: 0;
+    max-width: 11rem; }
+  .check input { width: auto; height: auto; }
+  #threshold-unit, #breakcredit-unit {
+    font-size: .72rem; color: var(--muted); height: 1.1em; max-width: 12rem;
+    line-height: 1.1;
   }
   .summary {
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     padding: .8rem 1rem; margin-bottom: 1.2rem; font-size: .95rem;
   }
   .summary .warn { color: var(--clash); }
+  .pinch {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: .6rem 1rem 1rem; margin-bottom: 1.2rem;
+  }
+  .pinch h2 { font-size: .95rem; margin: .5rem 0 .4rem; color: var(--accent); }
+  .pinch p { margin: .3rem 0; font-size: .9rem; }
+  .cands { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+  .cand {
+    background: #15110f; border: 1px solid var(--line); border-radius: 5px;
+    padding: .25rem .5rem; font-size: .85rem;
+  }
+  .cand .lc { color: var(--muted); font-size: .78em; }
   .grid {
     display: grid; gap: .7rem;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -97,9 +114,17 @@
       <label for="actors">Number of actors</label>
       <input type="number" id="actors" value="18" min="1" max="40">
     </div>
+    <div class="ctrl">
+      <label for="breakcredit">A scene break is worth…</label>
+      <input type="number" id="breakcredit" value="" min="0" max="9999"
+        placeholder="∞">
+      <span id="breakcredit-unit">lines of rest (blank = unlimited; 0 bans
+        re-entry)</span>
+    </div>
   </div>
 
   <div class="summary" id="summary"></div>
+  <div class="pinch" id="pinch"></div>
   <div class="grid" id="assignment"></div>
   <table id="reduction"></table>
 
