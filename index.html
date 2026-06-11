@@ -106,6 +106,22 @@
   caption { text-align: left; color: var(--muted); padding-bottom: .4rem; }
   th, td { text-align: right; padding: .35rem .7rem; border-bottom: 1px solid var(--line); }
   th:first-child, td:first-child { text-align: left; }
+  .linepanel { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: .8rem 1rem; margin: 1.4rem 0; }
+  .linepanel-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+    margin-bottom: .6rem; }
+  .linepanel-bar select { height: 2rem; }
+  #line-list { max-height: 420px; overflow-y: auto; }
+  .linerow { display: flex; gap: .5rem; padding: .25rem .4rem; border-radius: 5px;
+    align-items: baseline; cursor: pointer; font-size: .9rem; }
+  .linerow:hover { background: #15110f; }
+  .linerow.conflict { border-left: 3px solid var(--clash); }
+  .linerow.cut .lr-text { text-decoration: line-through; opacity: .4; }
+  .linerow .lr-who { font-variant: small-caps; font-weight: 700; min-width: 8rem;
+    color: var(--accent); }
+  .linerow.reassigned .lr-who { color: #d98; }
+  .linerow .lr-text { flex: 1; }
+  .lineops { display: flex; gap: .3rem; margin-top: .3rem; }
   .actions { margin-top: 1.6rem; display: flex; gap: .6rem; flex-wrap: wrap; }
   button {
     background: var(--accent); color: #1a1410; border: 0; border-radius: 7px;
@@ -190,6 +206,17 @@
   <div class="pinch" id="pinch"></div>
   <div class="grid" id="assignment"></div>
   <table id="reduction"></table>
+
+  <div class="linepanel" id="linepanel">
+    <div class="linepanel-bar">
+      <strong>Line editor</strong>
+      <select id="line-scene"></select>
+      <button id="jump-conflict" class="small secondary">Next conflicting line ⚠</button>
+      <select id="jump-char" class="small"></select>
+      <span id="conflict-count" class="muted"></span>
+    </div>
+    <div id="line-list"></div>
+  </div>
 
   <div class="actions">
     <button id="gen-scripts">Generate per-actor scripts</button>

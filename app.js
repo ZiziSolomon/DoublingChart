@@ -463,6 +463,7 @@ function render() {
   LAST_NACTORS = nActors;
 
   renderReductionTable(mode, n, floor);
+  renderLinePanel();
 
   // Edit badge.
   const badge = document.getElementById("edit-badge");
@@ -629,6 +630,190 @@ function closeRoleMenuOnce(e) {
   }
 }
 
+// ---- Conflict surfacing (relative to current assignment) -----------------
+// A spoken line "conflicts" when its effective speaker shares an actor with
+// another character who is on stage at the same instant — i.e. that actor
+// would need to be in two places at once. Returns a Set of conflicting glis
+// and a per-actor count, computed from LAST_ACTORS over EFF.
+function computeConflicts() {
+  const charToActor = {};
+  LAST_ACTORS.forEach((a, i) => a.roles.forEach(r => charToActor[r.name] = i));
+
+  const conflictGlis = new Set();
+  const perActor = LAST_ACTORS.map(() => 0);
+
+  // For each speech line, check whether any *other* character sharing the
+  // speaker's actor is on stage at that line's moment.
+  for (const e of EFF.script) {
+    if (e.t !== "speech") continue;
+    for (const l of e.lines) {
+      const sp = l.speaker;
+      if (!sp || !(sp in charToActor)) continue;
+      const actor = charToActor[sp];
+      // Other characters on this actor present at this scene & overlapping time.
+      const mates = LAST_ACTORS[actor].roles
+        .map(r => r.name).filter(nm => nm !== sp);
+      for (const mate of mates) {
+        if (onStageAt(mate, e.scene, l.gli)) {
+          conflictGlis.add(l.gli);
+          perActor[actor]++;
+          break;
+        }
+      }
+    }
+  }
+  return { glis: conflictGlis, perActor, charToActor };
+}
+
+// Is `name` on stage during the line at global index gli (in scene sc)?
+function onStageAt(name, sc, gli) {
+  for (const s of segmentsOf(name)) {
+    if (s[0] === sc && s[1] <= gli && gli < s[3]) return true;
+  }
+  return false;
+}
+
+// ---- Line editor panel ---------------------------------------------------
+let EDITOR_SCENE = 0;
+let LAST_CONFLICTS = { glis: new Set(), perActor: [], charToActor: {} };
+
+function renderLinePanel() {
+  LAST_CONFLICTS = computeConflicts();
+  const sceneSel = document.getElementById("line-scene");
+  // (Re)populate scene dropdown once.
+  if (sceneSel.options.length !== EFF.scenes.length) {
+    sceneSel.innerHTML = EFF.scenes.map((t, i) =>
+      `<option value="${i}">${t.split(" — ")[0]}</option>`).join("");
+  }
+  if (EDITOR_SCENE >= EFF.scenes.length) EDITOR_SCENE = 0;
+  sceneSel.value = EDITOR_SCENE;
+
+  // Jump-by-character dropdown.
+  const charSel = document.getElementById("jump-char");
+  charSel.innerHTML = `<option value="">Jump to next line by…</option>`
+    + NAMES.map(c => `<option value="${c}">${c}</option>`).join("");
+
+  document.getElementById("conflict-count").textContent =
+    LAST_CONFLICTS.glis.size
+      ? `${LAST_CONFLICTS.glis.size} conflicting line(s) under this cast`
+      : "no conflicts under this cast";
+
+  renderLineList();
+}
+
+function renderLineList() {
+  const wrap = document.getElementById("line-list");
+  const rows = [];
+  for (const e of EFF.script) {
+    if (e.t === "dir" && e.scene === EDITOR_SCENE)
+      rows.push(`<div class="dir" style="opacity:.6">[${escapeHTML(e.text)}]</div>`);
+    if (e.t !== "speech" || e.scene !== EDITOR_SCENE) continue;
+    for (const l of e.lines) {
+      const conflict = LAST_CONFLICTS.glis.has(l.gli);
+      const reassigned = (l.gli in EDITS.lineReassign);
+      const cut = EDITS.lineCuts.includes(l.gli);
+      rows.push(
+        `<div class="linerow${conflict ? " conflict" : ""}`
+        + `${reassigned ? " reassigned" : ""}${cut ? " cut" : ""}" `
+        + `data-gli="${l.gli}" id="gli-${l.gli}">`
+        + `<span class="lr-who">${l.speaker || "—"}</span>`
+        + `<span class="lr-text">${escapeHTML(l.text)}</span></div>`);
+    }
+  }
+  wrap.innerHTML = rows.join("") || "<p class='muted'>No lines in this scene.</p>";
+}
+
+// Open the per-line op menu (reassign / edit / delete / join).
+function openLineMenu(gli, anchorEl) {
+  closeRoleMenu();
+  const menu = document.createElement("div");
+  menu.className = "rolemenu"; menu.id = "rolemenu";
+  const add = (label, fn) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.onclick = () => { closeRoleMenu(); fn(); };
+    menu.appendChild(b);
+  };
+
+  add("Reassign to…", () => {
+    const pick = prompt("Reassign this line to which character?\n" + NAMES.join(", "));
+    if (pick) {
+      const nm = pick.trim().toUpperCase();
+      if (NAMES.includes(nm)) mutate(() => { EDITS.lineReassign[gli] = nm; });
+      else alert("Unknown character.");
+    }
+  });
+  add("Edit text…", () => {
+    const cur = effLineText(gli);
+    const next = prompt("Edit line text:", cur);
+    if (next !== null) mutate(() => { EDITS.lineEdits[gli] = next; });
+  });
+  add(EDITS.lineCuts.includes(gli) ? "Un-delete line" : "Delete line", () => {
+    mutate(() => {
+      const i = EDITS.lineCuts.indexOf(gli);
+      if (i >= 0) EDITS.lineCuts.splice(i, 1); else EDITS.lineCuts.push(gli);
+    });
+  });
+  if (EDITS.lineReassign[gli] !== undefined)
+    add("Clear reassignment", () =>
+      mutate(() => { delete EDITS.lineReassign[gli]; }));
+  if (EDITS.lineEdits[gli] !== undefined)
+    add("Revert text edit", () =>
+      mutate(() => { delete EDITS.lineEdits[gli]; }));
+
+  document.body.appendChild(menu);
+  const r = anchorEl.getBoundingClientRect();
+  menu.style.left = (window.scrollX + r.left) + "px";
+  menu.style.top = (window.scrollY + r.bottom + 4) + "px";
+  setTimeout(() => document.addEventListener("click", closeRoleMenuOnce), 0);
+}
+
+// Current effective text of a line (for the edit prompt default).
+function effLineText(gli) {
+  if (gli in EDITS.lineEdits) return EDITS.lineEdits[gli];
+  for (const e of DATA.script)
+    if (e.t === "speech")
+      for (const l of e.lines) if (l.gli === gli) return l.text;
+  return "";
+}
+
+function jumpToGli(gli) {
+  // Find the scene of this gli and switch to it, then scroll/flash the row.
+  for (const e of EFF.script)
+    if (e.t === "speech")
+      for (const l of e.lines)
+        if (l.gli === gli) { EDITOR_SCENE = e.scene; break; }
+  document.getElementById("line-scene").value = EDITOR_SCENE;
+  renderLineList();
+  const row = document.getElementById("gli-" + gli);
+  if (row) { row.scrollIntoView({ block: "center" }); row.style.background = "#3a2a10"; }
+}
+
+function jumpNextConflict() {
+  const sorted = [...LAST_CONFLICTS.glis].sort((a, b) => a - b);
+  if (!sorted.length) return;
+  // Next conflict after the current scene's first line, wrapping around.
+  const firstOfScene = sceneFirstGli(EDITOR_SCENE);
+  const next = sorted.find(g => g > firstOfScene) ?? sorted[0];
+  jumpToGli(next);
+}
+
+function jumpNextByChar(name) {
+  if (!name) return;
+  const glis = [];
+  for (const e of EFF.script)
+    if (e.t === "speech")
+      for (const l of e.lines) if (l.speaker === name) glis.push(l.gli);
+  if (!glis.length) return;
+  const firstOfScene = sceneFirstGli(EDITOR_SCENE);
+  jumpToGli(glis.find(g => g > firstOfScene) ?? glis[0]);
+}
+
+function sceneFirstGli(sc) {
+  for (const e of EFF.script)
+    if (e.t === "speech" && e.scene === sc && e.lines.length) return e.lines[0].gli;
+  return -1;
+}
+
 // ---- Per-actor script generation -----------------------------------------
 // Build one rehearsal script per actor from the current assignment over EFF:
 // a roster (which role they play in each scene) then the full play text with
@@ -774,6 +959,20 @@ function boot() {
   // Script generation.
   document.getElementById("gen-scripts").addEventListener("click", generateScripts);
   document.getElementById("download-scripts").addEventListener("click", downloadScripts);
+
+  // Line editor panel.
+  document.getElementById("line-scene").addEventListener("change", e => {
+    EDITOR_SCENE = parseInt(e.target.value, 10); renderLineList();
+  });
+  document.getElementById("jump-conflict").addEventListener("click", jumpNextConflict);
+  document.getElementById("jump-char").addEventListener("change", e => {
+    jumpNextByChar(e.target.value); e.target.value = "";
+  });
+  document.getElementById("line-list").addEventListener("click", e => {
+    const row = e.target.closest(".linerow[data-gli]");
+    if (row) { e.stopPropagation();
+      openLineMenu(parseInt(row.dataset.gli, 10), row); }
+  });
 
   syncThreshold();
   render();
