@@ -1020,59 +1020,102 @@ function sceneFirstGli(sc) {
 // a roster (which role they play in each scene) then the full play text with
 // their lines highlighted. Edits (cuts/merges/line ops) are already baked into
 // EFF.script, so the scripts reflect them.
-function buildScriptsHTML() {
-  if (!LAST_ACTORS.length) return "";
-  const scenesArr = EFF.scenes;
-  let html = "";
+// Distinct highlight colours for the combined colour-coded script.
+const ACTOR_COLOURS = ["#ffe9a8", "#bfe3c0", "#bcd6f5", "#f3c4d8", "#e6c9a8",
+  "#cdbdf0", "#a8e6e0", "#f5d0a8", "#d6e8a8", "#f0b8b8", "#b8e0f0", "#e0c0e8"];
 
+// Per-scene roster for an actor: which of their characters appear in each scene.
+function actorRoster(myChars) {
+  const r = [];
+  EFF.scenes.forEach((title, sc) => {
+    const here = [...myChars].filter(c => scenesOf(c).has(sc));
+    if (here.length) r.push(`${title.split(" — ")[0]}: <b>${here.join(" / ")}</b>`);
+  });
+  return r;
+}
+function actorLabel(myChars) {
+  return [...myChars].sort((a, b) =>
+    EFF.characters[b].total_lines - EFF.characters[a].total_lines).join(", ");
+}
+
+// Render the play body; markFn(speaker) -> {cls, style} decides per-line styling.
+// onlyScenes (a Set) limits which scenes are emitted (null = all).
+function renderPlayBody(markFn, onlyScenes) {
+  let body = "", skip = false;
+  for (const e of EFF.script) {
+    if (e.t === "scene") {
+      skip = onlyScenes && !onlyScenes.has(e.scene);
+      if (!skip) body += `<div class="scene-h" id="sc-${e.scene}">${EFF.scenes[e.scene]}</div>`;
+    } else if (skip) {
+      continue;
+    } else if (e.t === "dir") {
+      body += `<div class="dir">[${escapeHTML(e.text)}]</div>`;
+    } else if (e.t === "speech") {
+      for (const l of e.lines) {
+        if (l.join && body.endsWith("</span></div>")) {
+          body = body.slice(0, -"</span></div>".length)
+            + " " + escapeHTML(l.text) + "</span></div>";
+          continue;
+        }
+        const m = markFn(l.speaker);
+        const who = l.speaker || "—";
+        body += `<div class="sp ${m.cls}">`
+          + `<span class="who">${who}.</span> `
+          + `<span class="ln"${m.style ? ` style="${m.style}"` : ""}>`
+          + `${escapeHTML(l.text)}</span></div>`;
+      }
+    }
+  }
+  return body;
+}
+
+function buildScriptsHTML(opts = {}) {
+  if (!LAST_ACTORS.length) return "";
+  const mode = opts.mode || "per-actor";
+
+  if (mode === "combined") {
+    // One script; each actor's lines get a distinct highlight colour.
+    const colourOf = {};
+    LAST_ACTORS.forEach((a, i) =>
+      a.roles.forEach(r => colourOf[r.name] = ACTOR_COLOURS[i % ACTOR_COLOURS.length]));
+    const key = LAST_ACTORS.map((a, i) => a.roles.length
+      ? `<span class="legend" style="background:${ACTOR_COLOURS[i % ACTOR_COLOURS.length]}">`
+        + `Actor ${i + 1}: ${actorLabel(new Set(a.roles.map(r => r.name)))}</span>` : "")
+      .join(" ");
+    const body = renderPlayBody(sp => ({
+      cls: sp && colourOf[sp] ? "mine" : "other",
+      style: sp && colourOf[sp] ? `background:${colourOf[sp]};padding:0 .1em;border-radius:2px` : "",
+    }), null);
+    return `<div class="actor-script"><h2>${DATA.title} — full cast</h2>`
+      + `<div class="roster"><b>Highlight key:</b><br>${key}</div>${body}</div>`;
+  }
+
+  // Per-actor.
+  let html = "";
   LAST_ACTORS.forEach((actor, ai) => {
     const myChars = new Set(actor.roles.map(r => r.name));
     if (!myChars.size) return;
-
-    // Roster: which of this actor's characters appear in each scene.
-    const roster = [];
-    scenesArr.forEach((title, sc) => {
-      const here = [...myChars].filter(c => scenesOf(c).has(sc));
-      if (here.length)
-        roster.push(`${title.split(" — ")[0]}: <b>${here.join(" / ")}</b>`);
-    });
-
-    const label = [...myChars].sort((a, b) =>
-      EFF.characters[b].total_lines - EFF.characters[a].total_lines).join(", ");
-    let body = `<div class="actor-script"><h2>Actor ${ai + 1} — ${label}</h2>`
+    const onlyScenes = opts.onlyMyScenes
+      ? new Set(EFF.scenes.map((_, sc) => sc).filter(sc =>
+          [...myChars].some(c => scenesOf(c).has(sc))))
+      : null;
+    const body = renderPlayBody(sp => {
+      const mine = sp && myChars.has(sp);
+      return { cls: mine ? "mine" : "other", style: mine ? "background:#ffe9a8;padding:0 .1em;border-radius:2px" : "" };
+    }, onlyScenes);
+    html += `<div class="actor-script" id="actor-${ai}"><h2>Actor ${ai + 1} — ${actorLabel(myChars)}</h2>`
       + `<div class="roster"><b>Your roles by scene:</b><br>`
-      + (roster.join("<br>") || "(none)") + `</div>`;
-
-    // Full script with this actor's lines highlighted.
-    let curScene = -1;
-    for (const e of EFF.script) {
-      if (e.t === "scene") {
-        body += `<div class="scene-h">${scenesArr[e.scene]}</div>`;
-        curScene = e.scene;
-      } else if (e.t === "dir") {
-        body += `<div class="dir">[${e.text}]</div>`;
-      } else if (e.t === "speech") {
-        // A speech can contain lines reassigned to different speakers; group by
-        // effective speaker run for display. A joined line folds its text into
-        // the previous rendered line rather than starting a new one.
-        for (const l of e.lines) {
-          if (l.join && body.endsWith("</span></div>")) {
-            body = body.slice(0, -"</span></div>".length)
-              + " " + escapeHTML(l.text) + "</span></div>";
-            continue;
-          }
-          const mine = l.speaker && myChars.has(l.speaker);
-          const who = l.speaker || "—";
-          body += `<div class="sp ${mine ? "mine" : "other"}">`
-            + `<span class="who">${who}.</span> `
-            + `<span class="ln${mine ? " hi" : ""}">${escapeHTML(l.text)}</span></div>`;
-        }
-      }
-    }
-    body += `</div>`;
-    html += body;
+      + (actorRoster(myChars).join("<br>") || "(none)") + `</div>${body}</div>`;
   });
   return html;
+}
+
+// Read the current script options from the UI.
+function scriptOpts() {
+  return {
+    mode: document.getElementById("script-mode").value,
+    onlyMyScenes: document.getElementById("only-my-scenes").checked,
+  };
 }
 
 function escapeHTML(s) {
@@ -1080,17 +1123,43 @@ function escapeHTML(s) {
 }
 
 function generateScripts() {
-  document.getElementById("scripts").innerHTML = buildScriptsHTML();
+  document.getElementById("scripts").innerHTML = buildScriptsHTML(scriptOpts());
+  renderScriptJump();
+}
+
+// A dropdown to jump to any actor (per-actor mode) or scene within the scripts.
+function renderScriptJump() {
+  const el = document.getElementById("script-jump");
+  const opts = scriptOpts();
+  let targets = [];
+  if (opts.mode === "per-actor") {
+    LAST_ACTORS.forEach((a, i) => {
+      if (a.roles.length) targets.push([`actor-${i}`,
+        `Actor ${i + 1} — ${actorLabel(new Set(a.roles.map(r => r.name)))}`]);
+    });
+  } else {
+    EFF.scenes.forEach((t, sc) => targets.push([`sc-${sc}`, t.split(" — ")[0]]));
+  }
+  if (!targets.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<label class="hint">Jump to: <select id="jump-target">`
+    + `<option value="">—</option>`
+    + targets.map(([id, label]) => `<option value="${id}">${label}</option>`).join("")
+    + `</select></label>`;
+  document.getElementById("jump-target").addEventListener("change", e => {
+    const t = document.getElementById(e.target.value);
+    if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function downloadScripts() {
-  const inner = buildScriptsHTML();
+  const inner = buildScriptsHTML(scriptOpts());
   if (!inner) { generateScripts(); return; }
   // Self-contained HTML file with the script styles inlined.
   const styles = `body{font:15px/1.5 system-ui,sans-serif;background:#fff;color:#1c1714;
     margin:0;padding:1rem}.actor-script{max-width:720px;margin:0 auto 2rem;
     page-break-after:always}.actor-script h2{color:#6b3f1d}.roster{background:#efe6d6;
     border-radius:6px;padding:.5rem .7rem;margin-bottom:1rem;font-size:.9rem}
+    .legend{display:inline-block;padding:.1em .4em;margin:.1em;border-radius:3px}
     .sp{margin:.45rem 0}.sp .who{font-weight:700;font-variant:small-caps}
     .sp.other{color:#8a8278}.ln.hi{background:#ffe9a8;padding:0 .1em;border-radius:2px}
     .scene-h{font-weight:700;color:#6b3f1d;margin:1.1rem 0 .4rem;border-top:1px solid #d8cab0;
@@ -1138,6 +1207,8 @@ function boot() {
   if (q.has("actors")) a.value = q.get("actors");
   if (q.has("credit")) document.getElementById("breakcredit").value = q.get("credit");
   if (q.has("spread")) document.getElementById("spread").value = q.get("spread");
+  if (q.has("smode")) document.getElementById("script-mode").value = q.get("smode");
+  if (q.get("onlymine") === "1") document.getElementById("only-my-scenes").checked = true;
 
   ["mode", "threshold", "actors", "breakcredit", "spread"].forEach(id =>
     document.getElementById(id).addEventListener("input", () => {
@@ -1169,6 +1240,11 @@ function boot() {
   // Script generation.
   document.getElementById("gen-scripts").addEventListener("click", generateScripts);
   document.getElementById("download-scripts").addEventListener("click", downloadScripts);
+  // Regenerate live if scripts are already showing and options change.
+  ["script-mode", "only-my-scenes"].forEach(id =>
+    document.getElementById(id).addEventListener("change", () => {
+      if (document.getElementById("scripts").innerHTML.trim()) generateScripts();
+    }));
 
   // Line editor panel.
   document.getElementById("line-scene").addEventListener("change", e => {

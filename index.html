@@ -144,6 +144,8 @@
     padding: .5rem .7rem; margin-bottom: 1rem;
   }
   .actor-script .roster b { color: #6b3f1d; }
+  .actor-script .legend { display: inline-block; padding: .1em .45em; margin: .12em;
+    border-radius: 3px; color: #1c1714; font-size: .85rem; }
   .sp { margin: .45rem 0; }
   .sp .who { font-weight: 700; font-variant: small-caps; }
   .sp.mine .who { color: #1c1714; }
@@ -230,10 +232,17 @@
   </div>
 
   <div class="actions">
-    <button id="gen-scripts">Generate per-actor scripts</button>
+    <select id="script-mode">
+      <option value="per-actor">One script per actor</option>
+      <option value="combined">All actors, one colour-coded script</option>
+    </select>
+    <label class="check"><input type="checkbox" id="only-my-scenes"> Only scenes
+      I'm in (per-actor)</label>
+    <button id="gen-scripts">Generate scripts</button>
     <button id="print-scripts" class="secondary" onclick="window.print()">Print / Save PDF</button>
     <button id="download-scripts" class="secondary">Download all (.html)</button>
   </div>
+  <div id="script-jump"></div>
   <div id="scripts"></div>
 
   <footer>
