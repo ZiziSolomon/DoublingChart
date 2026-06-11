@@ -188,6 +188,13 @@
       <input type="number" id="actors" value="18" min="1" max="40">
     </div>
     <div class="ctrl">
+      <label for="spread">Surplus actors</label>
+      <select id="spread">
+        <option value="compress">Compress (fewest actors used)</option>
+        <option value="spread">Spread (even line load)</option>
+      </select>
+    </div>
+    <div class="ctrl">
       <label for="breakcredit">A scene break is worth…</label>
       <input type="number" id="breakcredit" value="" min="0" max="9999"
         placeholder="∞">
@@ -204,7 +211,9 @@
     <button id="clear-edits" class="secondary small">Clear all</button>
     <input type="file" id="import-file" accept="application/json" hidden>
   </div>
-  <p class="hint">Click a role chip below to cut, pin, move, or merge it.</p>
+  <p class="hint">Click a role chip below to cut, pin, move, merge, or split it.
+    <button id="auto-spread" class="small secondary">Auto-spread &amp; split to fill actors</button>
+  </p>
   <div class="pinch" id="pinch"></div>
   <div class="grid" id="assignment"></div>
   <table id="reduction"></table>

@@ -7,10 +7,14 @@ let NAMES = [];           // castable character names (from EFF)
 let BREAK_CREDIT = 9999;   // lines/words of rest a scene break is worth (UI-set)
 let LAST_ACTORS = [];      // current assignment, exposed for script generation
 let LAST_NACTORS = 0;      // actor count of the current assignment
+let SPREAD = false;        // spread roles across surplus actors vs. compress
 
 // User decisions/edits, all expressed against the ORIGINAL parsed data so they
 // stay stable and composable. See buildEFF for how they fold into EFF.
-let DECISIONS = { cutChars: [], merges: [], locks: {} };
+// splits maps a character to ascending scene cutpoints: PUCK:[4] splits PUCK
+// into a sub-role for scenes <4 and one for scenes >=4. Sub-roles are named
+// "PUCK#0", "PUCK#1", … and behave as independent assignable characters.
+let DECISIONS = { cutChars: [], merges: [], locks: {}, splits: {} };
 let EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [] };
 
 // ---- Persistence: decisions + edits --------------------------------------
@@ -33,7 +37,7 @@ function loadState() {
   if (!blob) return;
   try {
     const o = JSON.parse(blob);
-    if (o.DECISIONS) DECISIONS = { cutChars: [], merges: [], locks: {}, ...o.DECISIONS };
+    if (o.DECISIONS) DECISIONS = { cutChars: [], merges: [], locks: {}, splits: {}, ...o.DECISIONS };
     if (o.EDITS) EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [], ...o.EDITS };
   } catch (e) { /* corrupt; ignore */ }
 }
@@ -46,7 +50,7 @@ function mutate(fn) {
 }
 
 function clearAllEdits() {
-  DECISIONS = { cutChars: [], merges: [], locks: {} };
+  DECISIONS = { cutChars: [], merges: [], locks: {}, splits: {} };
   EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [] };
   saveState();
   render();
@@ -54,7 +58,7 @@ function clearAllEdits() {
 
 function decisionCount() {
   return DECISIONS.cutChars.length + DECISIONS.merges.length
-    + Object.keys(DECISIONS.locks).length;
+    + Object.keys(DECISIONS.locks).length + Object.keys(DECISIONS.splits).length;
 }
 function editCount() {
   return Object.keys(EDITS.lineReassign).length + Object.keys(EDITS.lineEdits).length
@@ -96,9 +100,21 @@ function buildEFF() {
     if (orig.has(name)) return true;
     return name.split("/").some(m => orig.has(m));  // merge label
   };
-  const canon = name => {
+  // Split: map (original name, scene) -> sub-role name "NAME#k" where k is the
+  // index of the scene-range the scene falls into. No split -> name unchanged.
+  const splitName = (name, scene) => {
+    const pts = DECISIONS.splits[name];
+    if (!pts || !pts.length) return name;
+    let k = 0;
+    for (const p of pts) if (scene >= p) k++;
+    return `${name}#${k}`;
+  };
+  // canon resolves a (name, scene) to its effective castable identity, applying
+  // cut -> split -> merge in order. scene may be omitted for whole-char checks.
+  const canon = (name, scene) => {
     if (cut.has(name) || !isCastable(name)) return null;
-    return mergeRoot(name, mergeMap);
+    const s = (scene === undefined) ? name : splitName(name, scene);
+    return mergeRoot(s, mergeMap);
   };
 
   const cuts = new Set(EDITS.lineCuts);
@@ -115,13 +131,13 @@ function buildEFF() {
   const effScript = [];
   for (const e of DATA.script) {
     if (e.t !== "speech") { effScript.push(e); continue; }
-    const sp = canon(e.speaker);
+    const sp = canon(e.speaker, e.scene);
     const outLines = [];
     for (const l of e.lines) {
       if (cuts.has(l.gli)) continue;                 // deleted line
       const text = (l.gli in EDITS.lineEdits) ? EDITS.lineEdits[l.gli] : l.text;
       const reassigned = EDITS.lineReassign[l.gli];
-      const lineSpeaker = reassigned ? canon(reassigned) : sp;
+      const lineSpeaker = reassigned ? canon(reassigned, e.scene) : sp;
       outLines.push({ gli: l.gli, text, speaker: lineSpeaker,
                       join: joins.has(l.gli) });
       if (lineSpeaker) {
@@ -139,9 +155,11 @@ function buildEFF() {
   //    canon() and merging overlapping/adjacent ones per canonical character.
   const segsByName = {};
   for (const [name, rec] of Object.entries(DATA.characters)) {
-    const c = canon(name);
-    if (!c) continue;
-    (segsByName[c] ||= []).push(...rec.segments.map(s => s.slice()));
+    for (const s of rec.segments) {
+      const c = canon(name, s[0]);     // split/merge by the segment's scene
+      if (!c) continue;
+      (segsByName[c] ||= []).push(s.slice());
+    }
   }
   for (const [name, segs] of Object.entries(segsByName)) {
     segs.sort((p, q) => p[1] - q[1]);
@@ -270,14 +288,20 @@ function assign(mode, n, nActors) {
     const eligible = eligibleActors(c, actors);
     let target, clash;
     if (eligible.length) {
-      // Pack onto an actor that already has roles (graph-colouring behaviour)
-      // before opening a fresh one; break ties by lighter load. This finds a
-      // clash-free assignment at the true minimum cast size.
-      target = eligible.reduce((m, a) => {
-        const aKey = [a.roles.length === 0 ? 1 : 0, a.load];
-        const mKey = [m.roles.length === 0 ? 1 : 0, m.load];
-        return (aKey[0] - mKey[0] || aKey[1] - mKey[1]) < 0 ? a : m;
-      });
+      if (SPREAD) {
+        // Spread: put each role on the least-loaded eligible actor (empty ones
+        // welcome), so all actors get used and spoken-line load evens out.
+        target = eligible.reduce((m, a) => a.load < m.load ? a : m);
+      } else {
+        // Compress: pack onto an actor that already has roles (graph-colouring
+        // behaviour) before opening a fresh one; ties by lighter load. Finds a
+        // clash-free assignment at the true minimum cast size.
+        target = eligible.reduce((m, a) => {
+          const aKey = [a.roles.length === 0 ? 1 : 0, a.load];
+          const mKey = [m.roles.length === 0 ? 1 : 0, m.load];
+          return (aKey[0] - mKey[0] || aKey[1] - mKey[1]) < 0 ? a : m;
+        });
+      }
       clash = false;
     } else {
       target = actors.reduce((m, a) => a.load < m.load ? a : m);
@@ -404,6 +428,7 @@ function render() {
   const nActors = parseInt(document.getElementById("actors").value, 10) || 1;
   const creditRaw = document.getElementById("breakcredit").value;
   BREAK_CREDIT = creditRaw === "" ? 9999 : (parseInt(creditRaw, 10) || 0);
+  SPREAD = document.getElementById("spread").value === "spread";
 
   const floor = chromatic(mode, n);
   const actors = assign(mode, n, nActors);
@@ -558,6 +583,50 @@ function syncThreshold() {
   if (usesN && (mode === "words") && t.value < 20) t.value = 50;
 }
 
+// ---- Auto-spread & split -------------------------------------------------
+// Fill surplus actors by splitting the heaviest multi-scene roles at a
+// load-balancing scene seam, then assigning in spread mode. Greedy: repeatedly
+// split whichever current role would best relieve the busiest actor, until no
+// empty actors remain or nothing more can be split.
+function autoSpreadSplit() {
+  const nActors = LAST_NACTORS || parseInt(document.getElementById("actors").value, 10);
+  document.getElementById("spread").value = "spread";
+  SPREAD = true;
+
+  for (let guard = 0; guard < 40; guard++) {
+    buildEFF(); NAMES = EFF.names;
+    const mode = document.getElementById("mode").value;
+    const n = parseInt(document.getElementById("threshold").value, 10) || 0;
+    const actors = assign(mode, n, nActors);
+    const empties = actors.filter(a => a.load === 0).length;
+    if (empties === 0) break;
+
+    // Pick the heaviest splittable base character not already split.
+    const cand = NAMES
+      .map(nm => nm.replace(/#\d+$/, ""))
+      .filter((b, i, arr) => arr.indexOf(b) === i)        // unique bases
+      .filter(b => DATA.characters[b] && !DECISIONS.splits[b]
+        && new Set(DATA.characters[b].segments.map(s => s[0])).size > 1)
+      .sort((a, b) => DATA.characters[b].total_lines - DATA.characters[a].total_lines)[0];
+    if (!cand) break;            // nothing left to split
+
+    // Seam = the scene boundary that most evenly halves the role's lines.
+    const scs = [...new Set(DATA.characters[cand].segments.map(s => s[0]))]
+      .sort((a, b) => a - b);
+    const linesBefore = sc => scs.filter(x => x < sc)
+      .reduce((t, x) => t + (DATA.characters[cand].lines[x] || 0), 0);
+    const half = DATA.characters[cand].total_lines / 2;
+    let seam = scs[1], bestDiff = Infinity;
+    for (const sc of scs.slice(1)) {
+      const diff = Math.abs(linesBefore(sc) - half);
+      if (diff < bestDiff) { bestDiff = diff; seam = sc; }
+    }
+    DECISIONS.splits[cand] = [seam];
+  }
+  saveState();
+  render();
+}
+
 // ---- Role chip menu (cut / lock / move / merge) --------------------------
 // A single floating menu reused for whichever role chip was clicked.
 function openRoleMenu(roleName, actorIdx, anchorEl) {
@@ -586,11 +655,33 @@ function openRoleMenu(roleName, actorIdx, anchorEl) {
 
   // Move to another actor (pin to a chosen slot).
   items.push([`Move to actor…`, () => {
-    const dest = prompt(`Move ${roleName} to which actor number (1-${LAST_NACTORS})?`);
-    const idx = parseInt(dest, 10) - 1;
-    if (idx >= 0 && idx < LAST_NACTORS)
-      mutate(() => { DECISIONS.locks[roleName] = idx; });
+    const opts = Array.from({ length: LAST_NACTORS }, (_, i) =>
+      ({ label: `Actor ${i + 1}`, value: i }));
+    pickOption(`Move ${roleName} to:`, anchorEl, opts,
+      v => mutate(() => { DECISIONS.locks[roleName] = parseInt(v, 10); }));
   }]);
+
+  // Split a multi-scene role at a scene boundary into independent sub-roles
+  // (e.g. PUCK I–III on one actor, PUCK IV–V on another). Operates on the base
+  // character; offers the scenes where the role appears (after its first) as
+  // possible seam points. Already-split roles get an "un-split" option.
+  const base = roleName.replace(/#\d+$/, "");
+  if (DECISIONS.splits[base]) {
+    items.push([`Un-split ${base}`, () =>
+      mutate(() => { delete DECISIONS.splits[base]; })]);
+  } else if (DATA.characters[base]) {
+    const scs = [...new Set(DATA.characters[base].segments.map(s => s[0]))]
+      .sort((a, b) => a - b);
+    if (scs.length > 1) {
+      items.push([`Split ${base} by scene…`, () => {
+        // Seam = "starts at scene X"; offer each scene after the first.
+        const opts = scs.slice(1).map(sc =>
+          ({ label: `before ${DATA.scenes[sc].split(" — ")[0]}`, value: sc }));
+        pickOption(`Split ${base} into two actors, second starts:`, anchorEl, opts,
+          v => mutate(() => { DECISIONS.splits[base] = [parseInt(v, 10)]; }));
+      }]);
+    }
+  }
 
   // Merge with another character (collapse to one body).
   items.push([`Merge ${roleName} with…`, () => {
@@ -760,6 +851,30 @@ function pickCharacter(title, anchorEl, cb, exclude) {
   const go = document.createElement("button");
   go.textContent = "Confirm";
   go.onclick = () => { const v = sel.value; closeRoleMenu(); if (v) cb(v); };
+  menu.appendChild(go);
+  document.body.appendChild(menu);
+  const r = anchorEl.getBoundingClientRect();
+  menu.style.left = (window.scrollX + r.left) + "px";
+  menu.style.top = (window.scrollY + r.bottom + 4) + "px";
+  setTimeout(() => document.addEventListener("click", closeRoleMenuOnce), 0);
+}
+
+// Generic option-picker submenu: opts is [{label, value}], calls cb(value).
+function pickOption(title, anchorEl, opts, cb) {
+  closeRoleMenu();
+  const menu = document.createElement("div");
+  menu.className = "rolemenu"; menu.id = "rolemenu";
+  const label = document.createElement("div");
+  label.textContent = title;
+  label.style.cssText = "padding:.3rem .55rem;font-size:.8rem;color:#9b8f82";
+  menu.appendChild(label);
+  const sel = document.createElement("select");
+  sel.innerHTML = opts.map(o => `<option value="${o.value}">${o.label}</option>`).join("");
+  sel.style.cssText = "margin:.2rem .4rem";
+  menu.appendChild(sel);
+  const go = document.createElement("button");
+  go.textContent = "Confirm";
+  go.onclick = () => { const v = sel.value; closeRoleMenu(); cb(v); };
   menu.appendChild(go);
   document.body.appendChild(menu);
   const r = anchorEl.getBoundingClientRect();
@@ -984,8 +1099,9 @@ function boot() {
   if (q.has("n")) document.getElementById("threshold").value = q.get("n");
   if (q.has("actors")) a.value = q.get("actors");
   if (q.has("credit")) document.getElementById("breakcredit").value = q.get("credit");
+  if (q.has("spread")) document.getElementById("spread").value = q.get("spread");
 
-  ["mode", "threshold", "actors", "breakcredit"].forEach(id =>
+  ["mode", "threshold", "actors", "breakcredit", "spread"].forEach(id =>
     document.getElementById(id).addEventListener("input", () => {
       if (id === "mode") syncThreshold();
       render();
@@ -1009,6 +1125,8 @@ function boot() {
   document.getElementById("import-edits").addEventListener("click", () =>
     document.getElementById("import-file").click());
   document.getElementById("import-file").addEventListener("change", importEdits);
+
+  document.getElementById("auto-spread").addEventListener("click", autoSpreadSplit);
 
   // Script generation.
   document.getElementById("gen-scripts").addEventListener("click", generateScripts);
@@ -1049,7 +1167,7 @@ function importEdits(e) {
   reader.onload = () => {
     try {
       const o = JSON.parse(reader.result);
-      if (o.DECISIONS) DECISIONS = { cutChars: [], merges: [], locks: {}, ...o.DECISIONS };
+      if (o.DECISIONS) DECISIONS = { cutChars: [], merges: [], locks: {}, splits: {}, ...o.DECISIONS };
       if (o.EDITS) EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [], ...o.EDITS };
       saveState(); render();
     } catch (err) { alert("Could not read that edits file."); }
