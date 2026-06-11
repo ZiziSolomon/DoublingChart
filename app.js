@@ -822,12 +822,14 @@ function renderLineList() {
       const conflict = LAST_CONFLICTS.glis.has(l.gli);
       const reassigned = (l.gli in EDITS.lineReassign);
       const cut = EDITS.lineCuts.includes(l.gli);
+      const joined = l.join;
       rows.push(
         `<div class="linerow${conflict ? " conflict" : ""}`
         + `${reassigned ? " reassigned" : ""}${cut ? " cut" : ""}" `
         + `data-gli="${l.gli}" id="gli-${l.gli}">`
-        + `<span class="lr-who">${l.speaker || "—"}</span>`
-        + `<span class="lr-text">${escapeHTML(l.text)}</span></div>`);
+        + `<span class="lr-who">${joined ? "↳" : (l.speaker || "—")}</span>`
+        + `<span class="lr-text">${joined ? "<em>(joined) </em>" : ""}`
+        + `${escapeHTML(l.text)}</span></div>`);
     }
   }
   wrap.innerHTML = rows.join("") || "<p class='muted'>No lines in this scene.</p>";
@@ -909,6 +911,17 @@ function openLineMenu(gli, anchorEl) {
       if (i >= 0) EDITS.lineCuts.splice(i, 1); else EDITS.lineCuts.push(gli);
     });
   });
+  // Join to previous line — only when the preceding effective line shares this
+  // line's effective speaker (you can't fold a line into a different speaker's).
+  const prev = prevEffLine(gli);
+  if (EDITS.lineJoins.includes(gli)) {
+    add("Un-join from previous", () => mutate(() => {
+      EDITS.lineJoins.splice(EDITS.lineJoins.indexOf(gli), 1);
+    }));
+  } else if (prev && prev.speaker === effSpeakerOf(gli)) {
+    add("Join to previous line", () =>
+      mutate(() => { EDITS.lineJoins.push(gli); }));
+  }
   if (EDITS.lineReassign[gli] !== undefined)
     add("Clear reassignment", () =>
       mutate(() => { delete EDITS.lineReassign[gli]; }));
@@ -930,6 +943,25 @@ function effLineText(gli) {
     if (e.t === "speech")
       for (const l of e.lines) if (l.gli === gli) return l.text;
   return "";
+}
+
+// Effective speaker of a line, and the immediately preceding effective line —
+// used to decide whether a "join to previous" is legal.
+function effSpeakerOf(gli) {
+  for (const e of EFF.script)
+    if (e.t === "speech")
+      for (const l of e.lines) if (l.gli === gli) return l.speaker;
+  return null;
+}
+function prevEffLine(gli) {
+  let last = null;
+  for (const e of EFF.script)
+    if (e.t === "speech")
+      for (const l of e.lines) {
+        if (l.gli === gli) return last;
+        last = l;
+      }
+  return null;
 }
 
 function jumpToGli(gli) {
@@ -1021,8 +1053,14 @@ function buildScriptsHTML() {
         body += `<div class="dir">[${e.text}]</div>`;
       } else if (e.t === "speech") {
         // A speech can contain lines reassigned to different speakers; group by
-        // effective speaker run for display.
+        // effective speaker run for display. A joined line folds its text into
+        // the previous rendered line rather than starting a new one.
         for (const l of e.lines) {
+          if (l.join && body.endsWith("</span></div>")) {
+            body = body.slice(0, -"</span></div>".length)
+              + " " + escapeHTML(l.text) + "</span></div>";
+            continue;
+          }
           const mine = l.speaker && myChars.has(l.speaker);
           const who = l.speaker || "—";
           body += `<div class="sp ${mine ? "mine" : "other"}">`
