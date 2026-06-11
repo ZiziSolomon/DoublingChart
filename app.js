@@ -419,6 +419,62 @@ function chromatic(mode, n) {
   return Math.max(...Object.values(colour)) + 1;
 }
 
+// ---- Cut-meter: propose cuts/merges to reach a target cast size ----------
+// Greedy over the pinch scene(s): the floor is set by the most-mutually-
+// conflicting characters on stage together, so to lower it we cut or merge the
+// lightest of those. Each step simulates the op (on a scratch DECISIONS),
+// rebuilds EFF, and keeps it if the floor dropped. Pure: restores state after.
+function suggestCuts(target, mode, n) {
+  const savedDec = JSON.parse(JSON.stringify(DECISIONS));
+  const savedEff = EFF, savedNames = NAMES;
+  const suggestions = [];
+  let guard = 0;
+  try {
+    let floor = chromatic(mode, n);
+    while (floor > target && guard++ < 60) {
+      const { pinch } = pinchScenes(mode, n);
+      if (!pinch.length) break;
+      // Candidates: characters in the pinch clique, lightest play-wide first.
+      const clique = pinch[0].chars;
+      const cands = [...clique].sort((a, b) =>
+        EFF.characters[a].total_lines - EFF.characters[b].total_lines);
+      // Try: merge the two lightest clique members (cheaper — keeps lines),
+      // else cut the lightest. Pick whichever lowers the floor.
+      let applied = null;
+      // Option A: merge two lightest.
+      if (cands.length >= 2) {
+        const [a, b] = cands;
+        DECISIONS.merges.push([a, b]);
+        buildEFF(); NAMES = EFF.names;
+        if (chromatic(mode, n) < floor) {
+          applied = { op: "merge", chars: [a, b],
+            cost: 0, note: `play one actor (lines kept)` };
+        } else DECISIONS.merges.pop();
+      }
+      // Option B: cut the lightest (if merge didn't help).
+      if (!applied) {
+        const c = cands[0];
+        DECISIONS.cutChars.push(c);
+        buildEFF(); NAMES = EFF.names;
+        if (chromatic(mode, n) < floor) {
+          applied = { op: "cut", chars: [c],
+            cost: savedEffLines(c, savedEff), note: `lines lost` };
+        } else { DECISIONS.cutChars.pop(); break; } // can't progress
+      }
+      buildEFF(); NAMES = EFF.names;
+      floor = chromatic(mode, n);
+      applied.floorAfter = floor;
+      suggestions.push(applied);
+    }
+  } finally {
+    DECISIONS = savedDec; EFF = savedEff; NAMES = savedNames;
+  }
+  return suggestions;
+}
+function savedEffLines(name, eff) {
+  return (eff.characters[name] && eff.characters[name].total_lines) || 0;
+}
+
 // ---- Rendering -----------------------------------------------------------
 function render() {
   buildEFF();            // re-derive effective model from current decisions/edits
@@ -527,7 +583,44 @@ function renderPinch(mode, n, floor, nActors) {
     + `you must thin or merge roles <em>in that scene</em>; cutting elsewhere won't help.</p>`
     + `<p class="muted">Lightest roles in ${sceneNames[0]} (cheapest to cut or `
     + `conflate — but check what each one provides before removing it):</p>`
-    + `<div class="cands">${lightHtml}</div>`;
+    + `<div class="cands">${lightHtml}</div>`
+    + (nActors < floor
+        ? `<p style="margin-top:.6rem"><button id="suggest-cuts" class="small">`
+          + `Suggest cuts/merges to reach ${nActors} actors</button></p>`
+          + `<div id="suggestions"></div>`
+        : "");
+
+  const btn = document.getElementById("suggest-cuts");
+  if (btn) btn.addEventListener("click", () => renderSuggestions(mode, n, nActors));
+}
+
+// Show a proposed sequence of cuts/merges that reaches the target cast size,
+// with an Apply button. Merges are preferred (they keep the lines).
+function renderSuggestions(mode, n, target) {
+  const out = document.getElementById("suggestions");
+  const sugg = suggestCuts(target, mode, n);
+  if (!sugg.length) {
+    out.innerHTML = `<p class="muted">Couldn't find cuts to reach ${target} `
+      + `automatically — the remaining roles are all leads. Try merging by hand.</p>`;
+    return;
+  }
+  const totalLost = sugg.filter(s => s.op === "cut").reduce((t, s) => t + s.cost, 0);
+  const list = sugg.map(s => s.op === "merge"
+    ? `<li><b>Merge</b> ${s.chars.join(" + ")} into one actor `
+      + `<span class="muted">(lines kept) → floor ${s.floorAfter}</span></li>`
+    : `<li><b>Cut</b> ${s.chars[0]} `
+      + `<span class="muted">(${s.cost} lines lost) → floor ${s.floorAfter}</span></li>`
+  ).join("");
+  out.innerHTML = `<p>To reach <b>${target}</b> actors:</p><ol class="sugg">${list}</ol>`
+    + `<p class="muted">${totalLost} spoken lines lost to cuts (merges keep theirs). `
+    + `<button id="apply-sugg" class="small">Apply all</button></p>`;
+  document.getElementById("apply-sugg").addEventListener("click", () => mutate(() => {
+    for (const s of sugg) {
+      if (s.op === "merge") DECISIONS.merges.push(s.chars);
+      else if (!DECISIONS.cutChars.includes(s.chars[0]))
+        DECISIONS.cutChars.push(s.chars[0]);
+    }
+  }));
 }
 
 function renderReductionTable(mode, n, floor) {
@@ -1263,6 +1356,9 @@ function boot() {
   syncThreshold();
   render();
   if (new URLSearchParams(location.search).get("gen") === "1") generateScripts();
+  const sg = new URLSearchParams(location.search).get("suggest");
+  if (sg) renderSuggestions(document.getElementById("mode").value,
+    parseInt(document.getElementById("threshold").value, 10) || 0, parseInt(sg, 10));
 }
 
 function exportEdits() {
