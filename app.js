@@ -527,11 +527,15 @@ function renderReductionTable(mode, n, floor) {
 }
 
 function labelFor(mode, n) {
+  // For gap modes, describe how scene breaks are valued (the break-credit knob).
+  const breakNote = BREAK_CREDIT >= 9999 ? "a scene break counts as unlimited rest"
+    : BREAK_CREDIT === 0 ? "scene breaks give no rest"
+    : `a scene break = ${BREAK_CREDIT}`;
   switch (mode) {
     case "instant": return "never on stage at the same instant";
     case "scene":   return "never in the same scene";
-    case "lines":   return `≥ ${n} lines apart (or a scene break between)`;
-    case "words":   return `≥ ${n} words apart (or a scene break between)`;
+    case "lines":   return `≥ ${n} lines apart (${breakNote})`;
+    case "words":   return `≥ ${n} words apart (${breakNote})`;
     case "scenes":  return `≥ ${n} scene breaks apart`;
     default:        return mode;
   }
@@ -698,6 +702,25 @@ function renderLinePanel() {
       ? `${LAST_CONFLICTS.glis.size} conflicting line(s) under this cast`
       : "no conflicts under this cast";
 
+  // Annotate actor cards with their conflict count (an offer to resolve).
+  const cards = document.querySelectorAll("#assignment .actor");
+  LAST_CONFLICTS.perActor.forEach((cnt, i) => {
+    const card = cards[i];
+    if (!card) return;
+    const head = card.querySelector(".actor-head");
+    const old = head.querySelector(".aclash");
+    if (old) old.remove();
+    if (cnt > 0) {
+      const tag = document.createElement("span");
+      tag.className = "aclash";
+      tag.textContent = `⚠ ${cnt}`;
+      tag.title = "Conflicting lines — click to jump to the first";
+      tag.style.cursor = "pointer";
+      tag.onclick = ev => { ev.stopPropagation(); jumpFirstConflictForActor(i); };
+      head.appendChild(tag);
+    }
+  });
+
   renderLineList();
 }
 
@@ -786,6 +809,19 @@ function jumpToGli(gli) {
   renderLineList();
   const row = document.getElementById("gli-" + gli);
   if (row) { row.scrollIntoView({ block: "center" }); row.style.background = "#3a2a10"; }
+}
+
+// Jump to the first conflicting line involving any character on a given actor.
+function jumpFirstConflictForActor(actorIdx) {
+  const mine = new Set(LAST_ACTORS[actorIdx].roles.map(r => r.name));
+  for (const e of EFF.script)
+    if (e.t === "speech")
+      for (const l of e.lines)
+        if (LAST_CONFLICTS.glis.has(l.gli) && mine.has(l.speaker)) {
+          jumpToGli(l.gli);
+          document.getElementById("linepanel").scrollIntoView({ block: "nearest" });
+          return;
+        }
 }
 
 function jumpNextConflict() {

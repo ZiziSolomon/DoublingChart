@@ -23,10 +23,23 @@ Currently loaded with *A Midsummer Night's Dream*. More plays to come.
   where possible, balancing total spoken lines per actor.
 - **Cost of a smaller cast** — if you pick fewer actors than the floor, it tells
   you *which scenes clash* and *how many spoken lines* would need one actor in
-  two places at once.
+  two places at once, and *where to cut* (the floor-forcing scene + its lightest
+  roles).
+- **Edit the play to fit your cast** — click a role chip to **cut** a character,
+  **pin/move** it to an actor, or **merge** two characters into one body (which
+  reduces headcount even where both were on stage). A **line editor** lets you
+  jump to conflicting lines (or any character's lines) and **reassign / edit /
+  delete** them. Every edit re-derives the cast and conflicts live.
+- **Per-actor scripts** — generate one rehearsal script per actor: a per-scene
+  roster of their roles, then the full play with their lines highlighted. Print
+  to PDF or download as a self-contained HTML file.
+
+Edits persist in your browser and to a shareable URL; export/import as JSON.
+A scene break's worth of rest is tunable ("scene break = N lines"); set it to 0
+to forbid an actor closing one scene and opening the next (the law of re-entry).
 
 You can share a configuration via URL params, e.g.
-`?mode=lines&n=30&actors=12`.
+`?mode=lines&n=30&actors=12&credit=10`.
 
 ## How the data is made
 
