@@ -594,11 +594,7 @@ function openRoleMenu(roleName, actorIdx, anchorEl) {
 
   // Merge with another character (collapse to one body).
   items.push([`Merge ${roleName} with…`, () => {
-    const others = NAMES.filter(nm => nm !== roleName);
-    const pick = prompt(`Merge ${roleName} with which character?\n`
-      + others.join(", "));
-    if (pick && NAMES.includes(pick.trim().toUpperCase())) {
-      const other = pick.trim().toUpperCase();
+    pickCharacter(`Merge ${roleName} with:`, anchorEl, other => {
       // Warn if they share scenes (merging hides those overlaps).
       const shared = [...scenesOf(roleName)].filter(s => scenesOf(other).has(s));
       if (shared.length) {
@@ -608,7 +604,7 @@ function openRoleMenu(roleName, actorIdx, anchorEl) {
           return;
       }
       mutate(() => { DECISIONS.merges.push([roleName, other]); });
-    }
+    }, roleName);
   }]);
 
   for (const [label, action] of items) {
@@ -746,6 +742,32 @@ function renderLineList() {
   wrap.innerHTML = rows.join("") || "<p class='muted'>No lines in this scene.</p>";
 }
 
+// Show a character-picker submenu (a <select> + confirm) anchored at anchorEl,
+// instead of a typed prompt. `exclude` omits a name; calls cb(name) on pick.
+function pickCharacter(title, anchorEl, cb, exclude) {
+  closeRoleMenu();
+  const menu = document.createElement("div");
+  menu.className = "rolemenu"; menu.id = "rolemenu";
+  const label = document.createElement("div");
+  label.textContent = title;
+  label.style.cssText = "padding:.3rem .55rem;font-size:.8rem;color:#9b8f82";
+  menu.appendChild(label);
+  const sel = document.createElement("select");
+  sel.innerHTML = NAMES.filter(c => c !== exclude)
+    .map(c => `<option value="${c}">${c}</option>`).join("");
+  sel.style.cssText = "margin:.2rem .4rem";
+  menu.appendChild(sel);
+  const go = document.createElement("button");
+  go.textContent = "Confirm";
+  go.onclick = () => { const v = sel.value; closeRoleMenu(); if (v) cb(v); };
+  menu.appendChild(go);
+  document.body.appendChild(menu);
+  const r = anchorEl.getBoundingClientRect();
+  menu.style.left = (window.scrollX + r.left) + "px";
+  menu.style.top = (window.scrollY + r.bottom + 4) + "px";
+  setTimeout(() => document.addEventListener("click", closeRoleMenuOnce), 0);
+}
+
 // Open the per-line op menu (reassign / edit / delete / join).
 function openLineMenu(gli, anchorEl) {
   closeRoleMenu();
@@ -758,12 +780,8 @@ function openLineMenu(gli, anchorEl) {
   };
 
   add("Reassign to…", () => {
-    const pick = prompt("Reassign this line to which character?\n" + NAMES.join(", "));
-    if (pick) {
-      const nm = pick.trim().toUpperCase();
-      if (NAMES.includes(nm)) mutate(() => { EDITS.lineReassign[gli] = nm; });
-      else alert("Unknown character.");
-    }
+    pickCharacter("Reassign this line to:", anchorEl,
+      nm => mutate(() => { EDITS.lineReassign[gli] = nm; }));
   });
   add("Edit text…", () => {
     const cur = effLineText(gli);
