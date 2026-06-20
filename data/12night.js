@@ -8,8 +8,8 @@ window.PLAY_DATA["12night"] = {
    "note": "The plot's engine is the gulling of Malvolio: he's gaslit into believing he's mad and possessed, locked in \"hideous darkness,\" and tormented for \"our pleasure and his penance.\" His sane protests are reframed as lunacy; the play uses \"mad\" more than any other in the canon and treats a breakdown as comedy."
   },
   {
-   "tag": "transmisogyny & gender",
-   "note": "Viola lives as Cesario, and the play is a touchstone for trans and genderqueer readers — but its humour also leans on the threat of her being \"found out,\" and the ending forcibly re-sorts everyone back into heterosexual marriage. Casting and framing decide whether this lands as trans joy or as a gender being treated as a costume to be stripped."
+   "tag": "transphobia & gender",
+   "note": "Viola lives as Cesario, and the play is a touchstone for trans and genderqueer readers — but its humour can lean on the threat of her being \"found out,\" and the ending forcibly re-sorts everyone back into heterosexual marriage. Read or played carelessly this becomes exposure-panic and a gender treated as a costume to be stripped; framing and casting decide whether it lands as trans joy instead."
   },
   {
    "tag": "queer erasure",
