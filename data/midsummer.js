@@ -22,6 +22,10 @@ window.PLAY_DATA["midsummer"] = {
   {
    "tag": "colonialism",
    "note": "The disputed \"changeling\" is an Indian boy \"stolen from an Indian king\" — a trafficked colonial possession the two rulers fight to own, with India exoticised as a space of racialised feminine riches. Critics read the boy's removal as the colonial taking of children into the coloniser's household."
+  },
+  {
+   "tag": "antisemitism",
+   "note": "In the Pyramus rehearsal (III.1) Flute calls his beloved \"most lovely Jew\" — usually glossed as nonsense rhyme or a clipped \"jewel,\" but it lands the word \"Jew\" as a throwaway, and the word carried a slur's weight in Shakespeare's England (cf. The Merchant of Venice). Minor and ambiguous, but worth a cast knowing it's there."
   }
  ],
  "scenes": [
