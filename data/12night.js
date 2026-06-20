@@ -16,12 +16,16 @@ window.PLAY_DATA["12night"] = {
    "note": "Olivia desires Cesario, Orsino is drawn to Cesario, and Antonio loves Sebastian openly and is abandoned, alone, at the close. The comic resolution writes the same-sex desire out rather than letting it stand."
   },
   {
+   "tag": "misogyny",
+   "note": "Orsino lectures that women's love is mere \"appetite\" no woman's heart being big enough to match a man's, and that women \"are as roses, whose fair flower / Being once display'd, doth fall that very hour\" — beauty as their only worth, and short-dated."
+  },
+  {
    "tag": "possessive & racialised violence",
-   "note": "Orsino threatens to murder the person he loves out of jealous male possession — \"like to the Egyptian thief at point of death, kill what I love\" — leaning on an Orientalist image of the savage foreigner."
+   "note": "Orsino then threatens to murder the person he loves out of jealous male possession — \"like to the Egyptian thief at point of death, kill what I love\" — leaning on an Orientalist image of the savage foreigner."
   },
   {
    "tag": "classism",
-   "note": "Much of the cruelty is class punishment: a steward who reaches above his station, and a foolish knight (Sir Andrew) milked for his money by Sir Toby and discarded."
+   "note": "Much of the cruelty is class punishment: Malvolio, a steward, is destroyed for presuming to rise — \"art any more than a steward?\" — and Sir Andrew, a foolish knight, is milked for his money by Sir Toby and discarded."
   }
  ],
  "scenes": [

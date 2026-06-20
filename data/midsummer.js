@@ -5,7 +5,7 @@ window.PLAY_DATA["midsummer"] = {
  "content_notes": [
   {
    "tag": "misogyny & forced marriage",
-   "note": "Opens with a father (Egeus) claiming the legal right to kill or cloister his daughter for refusing the husband he chose; Theseus upholds it — \"to you your father should be as a god.\" The four-way romance runs on women being disposed of between men, and the comic weddings hand that ownership from father to husband."
+   "note": "Opens with a father (Egeus) claiming the legal right to kill or cloister his daughter for refusing the husband he chose; Theseus upholds it — \"to you your father should be as a god.\" Theseus himself won Hippolyta by conquest — \"I woo'd thee with my sword\" — and the comic weddings just hand the women's ownership from father to husband."
   },
   {
    "tag": "rape-culture / consent",
@@ -25,7 +25,15 @@ window.PLAY_DATA["midsummer"] = {
   },
   {
    "tag": "antisemitism",
-   "note": "In the Pyramus rehearsal (III.1) Flute calls his beloved \"most lovely Jew\" — usually glossed as nonsense rhyme or a clipped \"jewel,\" but it lands the word \"Jew\" as a throwaway, and the word carried a slur's weight in Shakespeare's England (cf. The Merchant of Venice). Minor and ambiguous, but worth a cast knowing it's there."
+   "note": "Flute's \"most lovely Jew\" (III.1) — likely nonsense rhyme or a clipped \"jewel,\" but the word still lands."
+  },
+  {
+   "tag": "ableism & eugenics",
+   "note": "Oberon's closing blessing wishes the couples' children free of \"mole, hare lip, nor scar, Nor mark prodigious, such as are Despised in nativity\" — disabled and marked bodies cast as the curse a blessing wards off."
+  },
+  {
+   "tag": "classism",
+   "note": "The working-class \"rude mechanicals\" are staged as figures of fun for the court, who mock their play to their faces; their labour and earnestness are the joke."
   }
  ],
  "scenes": [
