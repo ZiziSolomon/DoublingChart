@@ -2,6 +2,28 @@ window.PLAY_DATA = window.PLAY_DATA || {};
 window.PLAY_DATA["midsummer"] = {
  "slug": "midsummer",
  "title": "A Midsummer Night's Dream",
+ "content_notes": [
+  {
+   "tag": "misogyny & forced marriage",
+   "note": "Opens with a father (Egeus) claiming the legal right to kill or cloister his daughter for refusing the husband he chose; Theseus upholds it — \"to you your father should be as a god.\" The four-way romance runs on women being disposed of between men, and the comic weddings hand that ownership from father to husband."
+  },
+  {
+   "tag": "rape-culture / consent",
+   "note": "Desire is chemically coerced throughout. Oberon drugs Titania to humiliate her and seize the child she's fostering; Demetrius is left permanently enchanted, so his closing \"love\" for Helena is never freely his. Bottom is transformed without consent and Titania's lust for him is itself forced."
+  },
+  {
+   "tag": "intimate-partner abuse",
+   "note": "Helena eroticises being beaten — \"I am your spaniel… the more you beat me, I will fawn on you\" — and the men repeatedly threaten the women. Played straight it can normalise abuse as romance."
+  },
+  {
+   "tag": "anti-Black & anti-Roma racism",
+   "note": "Under the spell, dark and foreign bodies become slurs: Lysander spurns Hermia as \"Ethiope\" and \"tawny Tartar.\" Beauty is coded white and fair throughout."
+  },
+  {
+   "tag": "colonialism",
+   "note": "The disputed \"changeling\" is an Indian boy \"stolen from an Indian king\" — a trafficked colonial possession the two rulers fight to own, with India exoticised as a space of racialised feminine riches. Critics read the boy's removal as the colonial taking of children into the coloniser's household."
+  }
+ ],
  "scenes": [
   "Act I, Scene 1 — Athens. The palace of THESEUS.",
   "Act I, Scene 2 — Athens. QUINCE’S house.",

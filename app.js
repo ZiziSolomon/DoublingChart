@@ -1307,6 +1307,24 @@ function switchPlay(slug) {
   location.assign(url);
 }
 
+// Render the play's content/harm notes into the collapsible panel. Stays
+// collapsed by default (available, not sprung on anyone) and hides entirely if
+// a play has no notes.
+function renderContentNotes() {
+  const panel = document.getElementById("cnotes");
+  const body = document.getElementById("cnotes-body");
+  if (!panel || !body) return;
+  const notes = (DATA && DATA.content_notes) || [];
+  if (!notes.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  panel.open = false;   // reset to collapsed when switching plays
+  document.getElementById("cnotes-summary").textContent =
+    `Content notes (${notes.length})`;
+  body.innerHTML = notes.map(n =>
+    `<div class="cn"><span class="tag">${escapeHTML(n.tag)}</span>`
+    + `<span class="note">${escapeHTML(n.note)}</span></div>`).join("");
+}
+
 function boot() {
   // Each play's data is inlined via data/<slug>.js into window.PLAY_DATA[slug],
   // so the page works from a web server AND when opened directly as a local file
@@ -1338,6 +1356,8 @@ function boot() {
   document.getElementById("stats").textContent =
     `${NAMES.length} castable characters · ${DATA.scenes.length} scenes · `
     + `${DATA.play_lines} lines`;
+
+  renderContentNotes();
 
   // Default actor count to the scene-mode floor for a sensible first view.
   const a = document.getElementById("actors");

@@ -2,6 +2,28 @@ window.PLAY_DATA = window.PLAY_DATA || {};
 window.PLAY_DATA["12night"] = {
  "slug": "12night",
  "title": "Twelfth Night",
+ "content_notes": [
+  {
+   "tag": "ableism & sanism",
+   "note": "The plot's engine is the gulling of Malvolio: he's gaslit into believing he's mad and possessed, locked in \"hideous darkness,\" and tormented for \"our pleasure and his penance.\" His sane protests are reframed as lunacy; the play uses \"mad\" more than any other in the canon and treats a breakdown as comedy."
+  },
+  {
+   "tag": "transmisogyny & gender",
+   "note": "Viola lives as Cesario, and the play is a touchstone for trans and genderqueer readers — but its humour also leans on the threat of her being \"found out,\" and the ending forcibly re-sorts everyone back into heterosexual marriage. Casting and framing decide whether this lands as trans joy or as a gender being treated as a costume to be stripped."
+  },
+  {
+   "tag": "queer erasure",
+   "note": "Olivia desires Cesario, Orsino is drawn to Cesario, and Antonio loves Sebastian openly and is abandoned, alone, at the close. The comic resolution writes the same-sex desire out rather than letting it stand."
+  },
+  {
+   "tag": "possessive & racialised violence",
+   "note": "Orsino threatens to murder the person he loves out of jealous male possession — \"like to the Egyptian thief at point of death, kill what I love\" — leaning on an Orientalist image of the savage foreigner."
+  },
+  {
+   "tag": "classism",
+   "note": "Much of the cruelty is class punishment: a steward who reaches above his station, and a foolish knight (Sir Andrew) milked for his money by Sir Toby and discarded."
+  }
+ ],
  "scenes": [
   "Act I, Scene 1 — DUKE ORSINO’s palace.",
   "Act I, Scene 2 — The sea-coast.",

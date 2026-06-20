@@ -17,6 +17,27 @@
   h1 { font-size: 1.4rem; margin: 0 0 .2rem; }
   h1 span { color: var(--accent); }
   .stats { color: var(--muted); font-size: .85rem; margin-bottom: 1.2rem; }
+  .cnotes {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--clash); border-radius: 10px;
+    padding: .5rem 1rem; margin-bottom: 1.2rem; font-size: .85rem;
+  }
+  .cnotes[open] { padding-bottom: .9rem; }
+  .cnotes summary {
+    cursor: pointer; color: var(--clash); font-weight: 600; list-style: none;
+  }
+  .cnotes summary::-webkit-details-marker { display: none; }
+  .cnotes summary::before { content: "▸ "; }
+  .cnotes[open] summary::before { content: "▾ "; }
+  .cnotes .intro { color: var(--muted); font-size: .78rem; margin: .5rem 0 .7rem; }
+  .cnotes .cn { margin: .55rem 0; line-height: 1.45; }
+  .cnotes .cn .tag {
+    display: inline-block; background: #15110f; border: 1px solid var(--line);
+    border-radius: 5px; padding: .05rem .45rem; margin-right: .5rem;
+    color: var(--accent); font-size: .78rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
+  }
+  .cnotes .cn .note { color: var(--ink); }
   .controls {
     display: flex; flex-wrap: wrap; gap: 1.4rem; align-items: flex-start;
     background: var(--panel); padding: 1rem 1.2rem; border-radius: 10px;
@@ -170,6 +191,14 @@
 <body>
   <h1><span id="play-title">…</span> · Doubling Chart</h1>
   <div class="stats" id="stats"></div>
+  <details class="cnotes" id="cnotes" hidden>
+    <summary id="cnotes-summary">Content notes</summary>
+    <div class="intro">Harm in the text, flagged so it isn't sprung on a cast
+      unprepared — read through an intersectional transfeminist, anti-racist
+      lens. Not exhaustive; meant to inform framing and content warnings, not to
+      forbid the play.</div>
+    <div id="cnotes-body"></div>
+  </details>
 
   <div class="controls">
     <div class="ctrl">
