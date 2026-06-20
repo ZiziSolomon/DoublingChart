@@ -18,21 +18,34 @@ let DECISIONS = { cutChars: [], merges: [], locks: {}, splits: {} };
 let EDITS = { lineReassign: {}, lineEdits: {}, lineCuts: [], lineJoins: [] };
 
 // ---- Persistence: decisions + edits --------------------------------------
-const STORE_KEY = "doublingchart.midsummer";
+// Per-play key, set in boot() from the active slug, so each play keeps its own
+// saved edits. The midsummer key equals the old global constant
+// ("doublingchart.midsummer"), so pre-multi-play saves migrate for free.
+let STORE_KEY = "doublingchart.midsummer";
+let SLUG = "midsummer";   // active play slug, set in boot()
 
 function saveState() {
   const blob = JSON.stringify({ DECISIONS, EDITS });
   try { localStorage.setItem(STORE_KEY, blob); } catch (e) { /* private mode */ }
   // Mirror to URL hash (base64) so a configuration can be shared/bookmarked.
-  try { location.hash = "s=" + btoa(unescape(encodeURIComponent(blob))); }
-  catch (e) { /* ignore */ }
+  // Stamp the play slug (&p=) so a link can't mis-apply one play's edits — which
+  // are keyed by character name — to another play on load.
+  try {
+    location.hash = "s=" + btoa(unescape(encodeURIComponent(blob)))
+      + "&p=" + encodeURIComponent(SLUG);
+  } catch (e) { /* ignore */ }
 }
 
 function loadState() {
-  // Hash beats localStorage (lets a shared link override local work).
+  // Hash beats localStorage (lets a shared link override local work), but only
+  // if the hash is for THIS play (or carries no slug — legacy MSND-only links).
   let blob = null;
   const m = location.hash.match(/s=([^&]+)/);
-  if (m) { try { blob = decodeURIComponent(escape(atob(m[1]))); } catch (e) {} }
+  const hp = location.hash.match(/[#&]p=([^&]+)/);
+  const hashSlug = hp ? decodeURIComponent(hp[1]) : null;
+  if (m && (!hashSlug || hashSlug === SLUG)) {
+    try { blob = decodeURIComponent(escape(atob(m[1]))); } catch (e) {}
+  }
   if (!blob) { try { blob = localStorage.getItem(STORE_KEY); } catch (e) {} }
   if (!blob) return;
   try {
@@ -1269,16 +1282,54 @@ function downloadScripts() {
 }
 
 // ---- Boot ----------------------------------------------------------------
+// Pick the active play: ?play= (if valid) → last play chosen → first in manifest.
+const LAST_PLAY_KEY = "doublingchart.lastplay";
+function activeSlug() {
+  const data = window.PLAY_DATA || {};
+  const fromUrl = new URLSearchParams(location.search).get("play");
+  if (fromUrl && data[fromUrl]) return fromUrl;
+  try {
+    const ls = localStorage.getItem(LAST_PLAY_KEY);
+    if (ls && data[ls]) return ls;
+  } catch (e) { /* private mode */ }
+  return (window.PLAY_LIST && window.PLAY_LIST[0] && window.PLAY_LIST[0].slug)
+    || Object.keys(data)[0] || "midsummer";
+}
+
+// Switch plays with a full reload (simplest correct path — no EFF teardown).
+// Keep the play-independent view knobs, set ?play=, and DROP the #s= edit hash
+// (it encodes one play's edits by character name and must not ride along).
+function switchPlay(slug) {
+  if (!slug || slug === SLUG) return;
+  const q = new URLSearchParams(location.search);
+  q.set("play", slug);
+  const url = location.pathname + "?" + q.toString();   // note: no hash
+  location.assign(url);
+}
+
 function boot() {
-  // Data is inlined in data.js (window.PLAY_DATA) so the page works both from
-  // a web server and when opened directly as a local file (file://), where
-  // fetch() would be blocked by the browser.
-  DATA = window.PLAY_DATA;
+  // Each play's data is inlined via data/<slug>.js into window.PLAY_DATA[slug],
+  // so the page works from a web server AND when opened directly as a local file
+  // (file://), where fetch() would be blocked by the browser.
+  SLUG = activeSlug();
+  DATA = (window.PLAY_DATA || {})[SLUG];
   if (!DATA) {
     document.getElementById("summary").innerHTML =
-      '<span class="warn">Could not load play data (data.js missing).</span>';
+      '<span class="warn">Could not load play data (data files missing).</span>';
     return;
   }
+  STORE_KEY = "doublingchart." + SLUG;   // per-play saved edits (before loadState)
+  try { localStorage.setItem(LAST_PLAY_KEY, SLUG); } catch (e) {}
+
+  // Populate the play picker from the manifest and switch plays on change.
+  const playSel = document.getElementById("play");
+  if (playSel && window.PLAY_LIST) {
+    playSel.innerHTML = window.PLAY_LIST
+      .map(p => `<option value="${p.slug}">${p.title}</option>`).join("");
+    playSel.value = SLUG;
+    playSel.addEventListener("change", () => switchPlay(playSel.value));
+  }
+
   loadState();                // restore any saved decisions/edits
   buildEFF();
   NAMES = EFF.names;

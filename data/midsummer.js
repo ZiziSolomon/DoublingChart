@@ -1,4 +1,6 @@
-﻿window.PLAY_DATA = {
+window.PLAY_DATA = window.PLAY_DATA || {};
+window.PLAY_DATA["midsummer"] = {
+ "slug": "midsummer",
  "title": "A Midsummer Night's Dream",
  "scenes": [
   "Act I, Scene 1 — Athens. The palace of THESEUS.",

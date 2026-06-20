@@ -173,6 +173,10 @@
 
   <div class="controls">
     <div class="ctrl">
+      <label for="play">Play</label>
+      <select id="play"></select>
+    </div>
+    <div class="ctrl">
       <label for="mode">Two roles can share an actor unless…</label>
       <select id="mode">
         <option value="instant">…on stage at the same instant</option>
@@ -254,7 +258,11 @@
     Assignment uses a greedy most-constrained-first heuristic, balancing line load.
   </footer>
 
-  <script src="data.js"></script>
+  <!-- Play manifest, then one data file per play (each self-registers into
+       window.PLAY_DATA[slug]; order-independent), then the app. -->
+  <script src="data/plays.js"></script>
+  <script src="data/midsummer.js"></script>
+  <script src="data/12night.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

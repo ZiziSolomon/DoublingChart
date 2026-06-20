@@ -7,7 +7,9 @@ exactly what breaks if you go below the minimum feasible cast.
 
 **Live:** https://zizisolomon.github.io/DoublingChart/
 
-Currently loaded with *A Midsummer Night's Dream*. More plays to come.
+Loaded with *A Midsummer Night's Dream* and *Twelfth Night*; pick a play from
+the **Play** dropdown. More plays to come. Each play keeps its own edits, and
+`?play=<slug>` selects one by URL.
 
 ## What it does
 
@@ -43,22 +45,30 @@ You can share a configuration via URL params, e.g.
 
 ## How the data is made
 
-`midsummer.json` is generated from the
-[Open Source Shakespeare](https://www.opensourceshakespeare.org/) print view:
+Each play is generated from its
+[Open Source Shakespeare](https://www.opensourceshakespeare.org/) print view.
+`--js` writes the data file the page actually loads
+(`window.PLAY_DATA[slug] = …`, plain UTF-8, no BOM), so the page works opened
+directly from disk (no server needed):
 
 ```
-python parse_play.py midsummer.html --json data/midsummer.json
+python parse_play.py midsummer.html --play midsummer --js data/midsummer.js
+python parse_play.py 12night.html   --play 12night   --js data/12night.js
 ```
+
+`--play <slug>` selects per-play config (cast aliases, crowd tokens, title) from
+the `PLAYS` dict in `parse_play.py` — kept as small declarative data so adding a
+play is mostly: download its print view, add a `PLAYS` entry, build, and add the
+slug to `data/plays.js` + a `<script>` tag in `index.html`. Use `--json` instead
+of `--js` for the raw timeline JSON, or no flag for a text casting report.
 
 The parser tracks a position-resolved timeline (each character's on-stage
 segments tagged with line/word positions), so the browser can evaluate any
 conflict rule client-side. Notable handling: bare `[Exit]`/`[Exeunt]` resolved
-from context, "Exeunt all but X", non-speaking presence, and the
-play-within-a-play in V.1 (Pyramus→Bottom, Thisbe→Flute, Wall→Snout,
-Moonshine→Starveling, Lion→Snug, Prologue→Quince) mapped to the real actors.
-
-`data.js` is just `midsummer.json` wrapped as `window.PLAY_DATA = …` so the page
-also works opened directly from disk (no server needed).
+from context, "Exeunt all but X", non-speaking presence, and per-play name
+quirks via `aliases` — e.g. MSND's play-within-a-play roles (Pyramus→Bottom …
+Prologue→Quince) mapped to the real actors, and Twelfth Night's Clown→Feste,
+Duke Orsino→Orsino, Sir Andrew→Sir Andrew Aguecheek.
 
 ## Caveats
 
